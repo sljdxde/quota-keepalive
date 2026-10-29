@@ -86,11 +86,33 @@ export function AccountsSetEnabled(target, accountID, enabled) {
 }
 
 /**
+ * AgentStatus 返回宿主接入信息。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function AgentStatus() {
+    return $Call.ByID(2587149988);
+}
+
+/**
  * AppsList 返回应用管理页聚合行。
  * @returns {$CancellablePromise<json$0.RawMessage>}
  */
 export function AppsList() {
     return $Call.ByID(4011214453);
+}
+
+/**
+ * LogsTail 按四类筛选查询日志（有界、游标）。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {string} operation
+ * @param {string} state
+ * @param {number} limit
+ * @param {number} cursor
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function LogsTail(target, accountID, operation, state, limit, cursor) {
+    return $Call.ByID(4160601372, target, accountID, operation, state, limit, cursor);
 }
 
 /**

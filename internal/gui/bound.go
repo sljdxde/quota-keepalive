@@ -22,6 +22,10 @@ type Deps struct {
 	SaveSettings func(*settings.Settings) error
 	// Accounts 是账号管理桥接。
 	Accounts AccountBridge
+	// Logs 按筛选条件查询日志（logtail）。
+	Logs func(ctx context.Context, filter LogFilter, limit int, cursor int64) (LogPage, error)
+	// AgentStatus 返回宿主接入信息（配对/连通/最近调用/计划指引）。
+	AgentStatus func(ctx context.Context) (AgentView, error)
 }
 
 // BoundService 是暴露给前端的服务。
@@ -125,4 +129,31 @@ func (s *BoundService) AccountsBeginLogin(target string) error {
 // AccountsImportSource 导入只读来源。
 func (s *BoundService) AccountsImportSource(target, accountID, sourceID string) error {
 	return s.deps.Accounts.ImportSource(context.Background(), target, accountID, sourceID)
+}
+
+// LogsTail 按四类筛选查询日志（有界、游标）。
+func (s *BoundService) LogsTail(target, accountID, operation, state string,
+	limit int, cursor int64) (json.RawMessage, error) {
+	if s.deps.Logs == nil {
+		return nil, errNotWired
+	}
+	page, err := s.deps.Logs(context.Background(),
+		LogFilter{Target: target, AccountID: accountID, Operation: operation, State: state},
+		limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(page)
+}
+
+// AgentStatus 返回宿主接入信息。
+func (s *BoundService) AgentStatus() (json.RawMessage, error) {
+	if s.deps.AgentStatus == nil {
+		return nil, errNotWired
+	}
+	view, err := s.deps.AgentStatus(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
 }
