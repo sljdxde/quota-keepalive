@@ -51,6 +51,26 @@ func (e *rpcError) Error() string {
 	return fmt.Sprintf("适配器 rpc 错误 %d: %s", e.Code, e.Message)
 }
 
+// HookHandler 处理适配器发起的钩子请求（宿主作为反向 JSON-RPC 服务端）。
+type HookHandler interface {
+	HandleHook(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+}
+
+// hookRequest 是适配器发起的请求。
+type hookRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+}
+
+// denyAllHooks 是未配置钩子时的默认行为：拒绝一切。
+type denyAllHooks struct{}
+
+func (denyAllHooks) HandleHook(_ context.Context, method string, _ json.RawMessage) (json.RawMessage, error) {
+	return nil, fmt.Errorf("宿主未配置钩子，拒绝: %s", method)
+}
+
 // Host 是一个适配器子进程的生命周期与 JSON-RPC 通道。
 type Host struct {
 	manifest Manifest
@@ -59,15 +79,22 @@ type Host struct {
 
 	shutdownOnce sync.Once
 	mu           sync.Mutex
+	writeMu      sync.Mutex
 	nextID       int
 	pending      map[int]chan rpcResponse
 	exited       bool
 	exitErr      error
+	hookHandler  HookHandler
 	stderr       stderrCollector
 }
 
-// Launch 启动适配器子进程并完成 initialize 握手。
+// Launch 启动适配器子进程并完成 initialize 握手（不配置钩子）。
 func Launch(ctx context.Context, bunPath, adapterDir string) (*Host, error) {
+	return LaunchWith(ctx, bunPath, adapterDir, nil)
+}
+
+// LaunchWith 启动适配器子进程并完成握手，同时注册钩子处理器。
+func LaunchWith(ctx context.Context, bunPath, adapterDir string, hooks HookHandler) (*Host, error) {
 	manifest, err := LoadManifest(adapterDir)
 	if err != nil {
 		return nil, err
@@ -89,11 +116,16 @@ func Launch(ctx context.Context, bunPath, adapterDir string) (*Host, error) {
 		return nil, err
 	}
 
+	if hooks == nil {
+		hooks = denyAllHooks{}
+	}
+
 	h := &Host{
-		manifest: manifest,
-		cmd:      cmd,
-		stdin:    stdin,
-		pending:  map[int]chan rpcResponse{},
+		manifest:    manifest,
+		cmd:         cmd,
+		stdin:       stdin,
+		pending:     map[int]chan rpcResponse{},
+		hookHandler: hooks,
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -103,11 +135,22 @@ func Launch(ctx context.Context, bunPath, adapterDir string) (*Host, error) {
 	go h.drainStderr(stderr)
 	go h.waitLoop()
 
-	if _, err := h.request(ctx, "initialize", map[string]any{"protocol": "qka-adapter"}); err != nil {
+	initParams := map[string]any{"protocol": "qka-adapter"}
+	if provider, ok := hooks.(initConfigProvider); ok {
+		for k, v := range provider.InitParams() {
+			initParams[k] = v
+		}
+	}
+	if _, err := h.request(ctx, "initialize", initParams); err != nil {
 		_ = h.Close()
 		return nil, fmt.Errorf("适配器 initialize 握手失败: %w", err)
 	}
 	return h, nil
+}
+
+// initConfigProvider 是钩子处理器可选实现的接口：向适配器 initialize 提供配置（如 baseURL）。
+type initConfigProvider interface {
+	InitParams() map[string]any
 }
 
 func (h *Host) waitLoop() {
@@ -119,15 +162,60 @@ func (h *Host) readLoop(stdout io.Reader) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), MaxMessageBytes)
 	for scanner.Scan() {
-		var resp rpcResponse
-		if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		raw := scanner.Bytes()
+		var kind struct {
+			Method string `json:"method"`
+		}
+		if err := json.Unmarshal(raw, &kind); err != nil {
 			continue // 非协议行忽略
+		}
+		if kind.Method != "" {
+			var req hookRequest
+			if err := json.Unmarshal(raw, &req); err != nil {
+				continue
+			}
+			go h.handleHookRequest(req)
+			continue
+		}
+		var resp rpcResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			continue
 		}
 		h.deliver(resp)
 	}
 	if err := scanner.Err(); err != nil {
 		// 单行超过上限：显式失败并终止已不可信的子进程。
 		h.shutdown(ErrMessageTooLarge, true)
+	}
+}
+
+// handleHookRequest 调用钩子处理器并把结果写回适配器。
+func (h *Host) handleHookRequest(req hookRequest) {
+	result, err := h.hookHandler.HandleHook(context.Background(), req.Method, req.Params)
+
+	out := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+	if err != nil {
+		out["error"] = &rpcError{Code: -32000, Message: err.Error()}
+	} else {
+		out["result"] = json.RawMessage(result)
+	}
+	line, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	h.writeLine(line)
+}
+
+// writeLine 串行化 stdin 写入，避免宿主请求与钩子响应交错。
+func (h *Host) writeLine(line []byte) {
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+
+	h.mu.Lock()
+	exited := h.exited
+	h.mu.Unlock()
+	if !exited {
+		_, _ = h.stdin.Write(append(line, '\n'))
 	}
 }
 
@@ -208,10 +296,7 @@ func (h *Host) request(ctx context.Context, method string, params any) (rpcRespo
 	if err != nil {
 		return rpcResponse{}, err
 	}
-	if _, err := h.stdin.Write(append(line, '\n')); err != nil {
-		h.removePending(id)
-		return rpcResponse{}, err
-	}
+	h.writeLine(line)
 
 	select {
 	case resp := <-ch:
@@ -241,10 +326,19 @@ func (h *Host) removePending(id int) {
 
 // Call 派发一个已在 manifest 中声明的动作；未声明的 op 直接拒绝，不发给子进程。
 func (h *Host) Call(ctx context.Context, op string) (json.RawMessage, error) {
+	return h.CallWith(ctx, op, nil)
+}
+
+// CallWith 派发动作并附带参数（如 accountId）。
+func (h *Host) CallWith(ctx context.Context, op string, args map[string]any) (json.RawMessage, error) {
 	if !h.manifest.HasAction(op) {
 		return nil, fmt.Errorf("%w: %q", ErrUndeclaredAction, op)
 	}
-	resp, err := h.request(ctx, "action", map[string]any{"op": op})
+	params := map[string]any{"op": op}
+	for k, v := range args {
+		params[k] = v
+	}
+	resp, err := h.request(ctx, "action", params)
 	if err != nil {
 		return nil, err
 	}

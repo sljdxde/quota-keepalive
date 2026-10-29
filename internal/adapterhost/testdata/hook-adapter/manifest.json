@@ -1,0 +1,9 @@
+{
+  "id": "hook-adapter",
+  "name": "Hook Adapter",
+  "version": "1.0.0",
+  "entry": "index.mjs",
+  "actions": [
+    { "op": "useHook" }
+  ]
+}
