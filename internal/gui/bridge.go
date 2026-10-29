@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"qka/internal/accounts"
+	"qka/internal/workbuddy"
 )
 
 // AccountBridge 是账号管理页所需的后端能力（由应用装配实现）。
@@ -12,8 +13,12 @@ type AccountBridge interface {
 	List(ctx context.Context) ([]accounts.Account, error)
 	// Discover 经适配器发现目标应用的账号（脱敏、无凭据）。
 	Discover(ctx context.Context, target string) error
-	// BeginLogin 发起目标应用的官方登录（浏览器打开官方入口）。
-	BeginLogin(ctx context.Context, target string) error
+	// BeginLogin 发起目标应用的官方登录并返回可见状态。
+	BeginLogin(ctx context.Context, target string) (workbuddy.LoginView, error)
+	// LoginStatus 返回当前或最近一次官方登录状态。
+	LoginStatus(ctx context.Context, target string) workbuddy.LoginView
+	// CancelLogin 取消进行中的官方登录。
+	CancelLogin(ctx context.Context, target string) (workbuddy.LoginView, error)
 	// ImportSource 导入一个只读来源。
 	ImportSource(ctx context.Context, target, accountID, sourceID string) error
 	// SetEnabled 逐账号启停。

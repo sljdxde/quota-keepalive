@@ -3,10 +3,9 @@ package gui
 import (
 	"context"
 	"errors"
-	"time"
 
 	"qka/internal/accounts"
-	"qka/internal/login"
+	"qka/internal/workbuddy"
 )
 
 // ErrNoOfficialEntry 表示该目标没有可用的官方登录入口。
@@ -17,34 +16,30 @@ type HostDiscoverer interface {
 	Discover(ctx context.Context, target string) ([]accounts.DiscoveredAccount, error)
 }
 
-// LoginEntries 返回目标应用的官方登录入口（target-specific，由装配提供）。
-type LoginEntries interface {
-	Entry(target string) (login.Entry, bool)
+// LoginManager 协调目标应用的官方浏览器登录。
+type LoginManager interface {
+	Begin(ctx context.Context, target string) (workbuddy.LoginView, error)
+	Status(ctx context.Context, target string) workbuddy.LoginView
+	Cancel(ctx context.Context, target string) (workbuddy.LoginView, error)
 }
 
 // realBridge 是 AccountBridge 的具体实现。
 type realBridge struct {
-	acct    *accounts.Service
-	login   *login.Service
-	hosts   HostDiscoverer
-	entries LoginEntries
-	openURL func(string) error
+	acct   *accounts.Service
+	hosts  HostDiscoverer
+	logins LoginManager
 }
 
 // NewAccountBridge 组装 AccountBridge。
 func NewAccountBridge(
 	acct *accounts.Service,
-	loginSvc *login.Service,
 	hosts HostDiscoverer,
-	entries LoginEntries,
-	openURL func(string) error,
+	logins LoginManager,
 ) AccountBridge {
 	return &realBridge{
-		acct:    acct,
-		login:   loginSvc,
-		hosts:   hosts,
-		entries: entries,
-		openURL: openURL,
+		acct:   acct,
+		hosts:  hosts,
+		logins: logins,
 	}
 }
 
@@ -60,18 +55,38 @@ func (b *realBridge) Discover(ctx context.Context, target string) error {
 	return b.acct.Discover(ctx, target, found)
 }
 
-func (b *realBridge) BeginLogin(ctx context.Context, target string) error {
-	entry, ok := b.entries.Entry(target)
-	if !ok {
-		return ErrNoOfficialEntry
+func (b *realBridge) BeginLogin(ctx context.Context, target string) (workbuddy.LoginView, error) {
+	if b.logins == nil {
+		return workbuddy.LoginView{}, ErrNoOfficialEntry
 	}
-	if _, err := b.login.Begin(entry, time.Now()); err != nil {
-		return err
+	view, err := b.logins.Begin(ctx, target)
+	if errors.Is(err, workbuddy.ErrUnsupportedTarget) {
+		return workbuddy.LoginView{}, ErrNoOfficialEntry
 	}
-	if b.openURL != nil {
-		return b.openURL(entry.Location)
+	return view, err
+}
+
+func (b *realBridge) LoginStatus(ctx context.Context, target string) workbuddy.LoginView {
+	if b.logins == nil {
+		return workbuddy.LoginView{
+			Target:   target,
+			Status:   workbuddy.LoginIdle,
+			Message:  "无官方登录入口",
+			Protocol: workbuddy.ProtocolBaseline,
+		}
 	}
-	return nil
+	return b.logins.Status(ctx, target)
+}
+
+func (b *realBridge) CancelLogin(ctx context.Context, target string) (workbuddy.LoginView, error) {
+	if b.logins == nil {
+		return workbuddy.LoginView{}, ErrNoOfficialEntry
+	}
+	view, err := b.logins.Cancel(ctx, target)
+	if errors.Is(err, workbuddy.ErrUnsupportedTarget) {
+		return workbuddy.LoginView{}, ErrNoOfficialEntry
+	}
+	return view, err
 }
 
 func (b *realBridge) ImportSource(ctx context.Context, target, accountID, sourceID string) error {

@@ -4,7 +4,7 @@ status: accepted
 
 # WorkBuddy 适配器复用 Magpie 协议而不依赖 Magpie 运行时
 
-WorkBuddy 的浏览器登录、token 刷新、请求头和签到语义已经有 Magpie 及其社区插件实现，但 QKA 的适配器运行在 Bun/JSON-RPC 宿主中，而 Magpie 插件依赖 OpenCode/Magpie 自己的插件宿主。为避免两套运行时生命周期、认证存储和更新节奏互相耦合，我们决定在 QKA 的 WorkBuddy 适配器内按 Magpie 当前行为实现同一协议，不把 Magpie 进程或插件包作为运行时依赖。协议基线以安装时核验的 Magpie WorkBuddy 插件版本为准，升级上游协议时必须先补充对照证据和受控假目标测试。
+WorkBuddy 的浏览器登录、token 刷新、请求头和签到语义已经有 Magpie 及其社区插件实现，但 QKA 的适配器运行在 Bun/JSON-RPC 宿主中，而 Magpie 插件依赖 OpenCode/Magpie 自己的插件宿主。为避免两套运行时生命周期、认证存储和更新节奏互相耦合，我们决定在 QKA 的 WorkBuddy 适配器内按 Magpie 当前行为实现同一协议，不把 Magpie 进程或插件包作为运行时依赖。协议基线固定为 `@magpie-community/opencode-workbuddy-auth@0.1.47`，对照细节见 [`docs/protocols/workbuddy-cn-magpie-0.1.47.md`](../protocols/workbuddy-cn-magpie-0.1.47.md)；升级上游协议时必须先补充对照证据和受控假目标测试。
 
 ## Considered Options
 

@@ -16,12 +16,21 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as json$0 from "../../../encoding/json/models.js";
 
 /**
- * AccountsBeginLogin 发起官方登录。
+ * AccountsBeginLogin 发起官方登录并返回可见状态。
  * @param {string} target
- * @returns {$CancellablePromise<void>}
+ * @returns {$CancellablePromise<json$0.RawMessage>}
  */
 export function AccountsBeginLogin(target) {
     return $Call.ByID(2607732007, target);
+}
+
+/**
+ * AccountsCancelLogin 取消进行中的官方登录。
+ * @param {string} target
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function AccountsCancelLogin(target) {
+    return $Call.ByID(339212972, target);
 }
 
 /**
@@ -60,6 +69,15 @@ export function AccountsImportSource(target, accountID, sourceID) {
  */
 export function AccountsList() {
     return $Call.ByID(3456400181);
+}
+
+/**
+ * AccountsLoginStatus 返回当前或最近一次官方登录状态。
+ * @param {string} target
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function AccountsLoginStatus(target) {
+    return $Call.ByID(2788361808, target);
 }
 
 /**
@@ -165,7 +183,7 @@ export function SettingsSchema() {
 }
 
 /**
- * SettingsSet 更新一个设置项并保存。
+ * SettingsSet 更新一个设置项并保存，随后应用副作用（如 launch_at_login）。
  * @param {string} key
  * @param {boolean} value
  * @returns {$CancellablePromise<void>}
