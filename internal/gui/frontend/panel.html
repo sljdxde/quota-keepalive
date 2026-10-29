@@ -24,6 +24,12 @@
 
 <script type="module">
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
+  import { Window } from "/wails/runtime.js";
+
+  // Esc 关闭面板（不抢焦点；失焦即隐由原生 AttachWindow 提供）。
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") Window.Hide();
+  });
 
   const qka = {
     status: async function () {

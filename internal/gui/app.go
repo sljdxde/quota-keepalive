@@ -26,9 +26,24 @@ func assetHandler() http.Handler {
 	return http.FileServer(http.FS(sub))
 }
 
-// New 创建 Wails 应用：默认 accessory 策略（无 Dock 图标），组装托盘、面板与五页签主窗口。
+// activationPolicy 把 show_dock_icon 设置映射为 macOS 激活策略：
+// 开启显示 Dock 图标（regular），默认菜单栏常驻（accessory）。
+func activationPolicy(showDockIcon bool) application.ActivationPolicy {
+	if showDockIcon {
+		return application.ActivationPolicyRegular
+	}
+	return application.ActivationPolicyAccessory
+}
+
+// New 创建 Wails 应用：根据 show_dock_icon 选择激活策略（默认 accessory 无 Dock 图标），
+// 组装托盘、面板与五页签主窗口。
 func New(deps Deps) *App {
 	bound := NewBoundService(deps)
+
+	showDock := false
+	if deps.Settings != nil {
+		showDock = deps.Settings().Get("show_dock_icon")
+	}
 
 	wails := application.New(application.Options{
 		Name: "qka",
@@ -39,7 +54,7 @@ func New(deps Deps) *App {
 			Handler: assetHandler(),
 		},
 		Mac: application.MacOptions{
-			ActivationPolicy: application.ActivationPolicyAccessory,
+			ActivationPolicy: activationPolicy(showDock),
 		},
 	})
 
@@ -97,6 +112,15 @@ func New(deps Deps) *App {
 	tray.SetMenu(menu)
 
 	return &App{wails: wails, tray: tray, panel: panel, main: main, settings: settings}
+}
+
+// SetFailureState 切换菜单栏图标：有签到失败时显示红色圆点，否则恢复模板图标。
+func (a *App) SetFailureState(hasFailure bool) {
+	if hasFailure {
+		a.tray.SetIcon(failureIcon())
+	} else {
+		a.tray.SetTemplateIcon(templateIcon())
+	}
 }
 
 // Run 启动 GUI 事件循环。

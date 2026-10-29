@@ -37,4 +37,11 @@ var Schema = []Field{
 		Description: "登录后自动启动 qka。",
 		Default:     false,
 	},
+	{
+		Key:         "enable_notifications",
+		Type:        FieldBool,
+		Label:       "系统通知",
+		Description: "执行完成后发送系统通知；默认关闭，不打扰。",
+		Default:     false,
+	},
 }

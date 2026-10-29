@@ -20,6 +20,8 @@ type Deps struct {
 	Settings func() *settings.Settings
 	// SaveSettings 保存设置。
 	SaveSettings func(*settings.Settings) error
+	// AfterSaveSettings 在保存后应用副作用（如 launch_at_login → autostart）。
+	AfterSaveSettings func(*settings.Settings) error
 	// Accounts 是账号管理桥接。
 	Accounts AccountBridge
 	// Logs 按筛选条件查询日志（logtail）。
@@ -78,13 +80,19 @@ func (s *BoundService) SettingsGet() (json.RawMessage, error) {
 	return json.Marshal(s.deps.Settings().Values())
 }
 
-// SettingsSet 更新一个设置项并保存。
+// SettingsSet 更新一个设置项并保存，随后应用副作用（如 launch_at_login）。
 func (s *BoundService) SettingsSet(key string, value bool) error {
 	cur := s.deps.Settings()
 	if err := cur.Set(key, value); err != nil {
 		return err
 	}
-	return s.deps.SaveSettings(cur)
+	if err := s.deps.SaveSettings(cur); err != nil {
+		return err
+	}
+	if s.deps.AfterSaveSettings != nil {
+		return s.deps.AfterSaveSettings(cur)
+	}
+	return nil
 }
 
 // AppsList 返回应用管理页聚合行。
