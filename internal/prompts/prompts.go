@@ -35,29 +35,29 @@ type Message struct {
 // catalog 是五个固定 prompt。
 var catalog = []Prompt{
 	{
-		Name: "install_and_pair",
+		Name:        "install_and_pair",
 		Description: "引导用户安装 qka 并与宿主完成配对",
 	},
 	{
-		Name: "add_account_with_official_login",
+		Name:        "add_account_with_official_login",
 		Description: "引导用户通过官方登录添加账号（不收集密码/验证码）",
 		Arguments: []Argument{
 			{Name: "target", Description: "目标应用 id", Required: true},
 		},
 	},
 	{
-		Name: "setup_host_schedule",
+		Name:        "setup_host_schedule",
 		Description: "输出宿主侧创建/核验定时任务的步骤与调用文本（不写 qka 状态）",
 	},
 	{
-		Name: "diagnose_failed_account",
+		Name:        "diagnose_failed_account",
 		Description: "诊断失败账号并给出可执行修复步骤",
 		Arguments: []Argument{
 			{Name: "target", Description: "目标应用 id", Required: false},
 		},
 	},
 	{
-		Name: "explain_today_results",
+		Name:        "explain_today_results",
 		Description: "解释今日签到与保活结果",
 	},
 }

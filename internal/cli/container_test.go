@@ -7,7 +7,7 @@ type fakeFS struct {
 	files  map[string]string
 }
 
-func (f fakeFS) Exists(p string) bool        { return f.exists[p] }
+func (f fakeFS) Exists(p string) bool             { return f.exists[p] }
 func (f fakeFS) ReadFile(p string) (string, bool) { s, ok := f.files[p]; return s, ok }
 
 func TestDetectContainerFalseOnBareMac(t *testing.T) {
