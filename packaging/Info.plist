@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>qka</string>
+  <key>CFBundleDisplayName</key>
+  <string>qka</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.qka.agent</string>
+  <key>CFBundleExecutable</key>
+  <string>qka</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>__VERSION__</string>
+  <key>CFBundleVersion</key>
+  <string>__BUILD__</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <!-- 默认纯菜单栏运行、无 Dock 图标；Dock 显示作为设置项动态切换。 -->
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>qka — Quota KeepAlive Agent</string>
+</dict>
+</plist>

@@ -13,7 +13,7 @@
   nav { display: flex; border-bottom: 1px solid #ddd; }
   nav button { flex: 1; padding: 10px; border: 0; background: none; cursor: pointer;
                border-bottom: 2px solid transparent; }
-  nav button.active { border-bottom-color: #0a84ff; color: #0a84ff; }
+  nav button.active { border-bottom-color: #0ea371; color: #0ea371; }
   main { flex: 1; padding: 16px; overflow: auto; }
   .tab { display: none; }
   .tab.active { display: block; }
@@ -22,16 +22,18 @@
   .health.reauth_required { color: #ff9f0a; }
   .health.disabled { color: #ff5f57; }
   .health.healthy { color: #30d158; }
+  .health.no_account { color: #8e8e93; }
   .result.failed { color: #ff5f57; }
   .result.confirmed { color: #30d158; }
   .result.provisional { color: #ffd60a; }
+  .result.none { color: #8e8e93; }
   .acct { border: 1px solid #eee; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
   .acct .row { display: flex; align-items: center; justify-content: space-between; }
   .src { font-size: 12px; color: #666; margin-top: 6px; display: flex;
          align-items: center; gap: 6px; }
   .danger { color: #ff5f57; border: 0; background: none; cursor: pointer; }
-  section button { padding: 6px 10px; border: 1px solid #0a84ff; border-radius: 6px;
-                   background: #0a84ff; color: #fff; cursor: pointer; }
+  section button { padding: 6px 10px; border: 1px solid #0ea371; border-radius: 6px;
+                   background: #0ea371; color: #fff; cursor: pointer; }
   select { padding: 6px; border: 1px solid #ccc; border-radius: 6px; background: inherit;
            color: inherit; }
   @media (prefers-color-scheme: dark) {
@@ -44,6 +46,10 @@
 </head>
 <body>
   <header>
+    <svg class="logo" viewBox="0 0 64 64" width="16" height="16" aria-hidden="true">
+      <path d="M12 32 H21 L27 15 L35 47 L41 32 H52" fill="none"
+            stroke="#0ea371" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
     <strong>qka</strong>
     <span class="spacer"></span>
     <button id="settings" title="设置">&#9881;</button>
@@ -129,6 +135,12 @@
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
   import { Events } from "/wails/runtime.js";
 
+  // Wails 对返回 json.RawMessage 的方法，前端拿到的是已解析对象（兼容字符串）。
+  function asJSON(v) {
+    if (typeof v === "string") return JSON.parse(v);
+    return v;
+  }
+
   // 五页签切换（顺序固定，由 DOM 决定）。
   const tabs = document.querySelectorAll("#tabs button");
   tabs.forEach(function (btn) {
@@ -147,18 +159,33 @@
   };
 
   // 应用管理页。
+  const healthLabel = {
+    healthy: "健康", reauth_required: "待重登",
+    disabled: "已停用", no_account: "无账号",
+  };
+  const resultLabel = {
+    confirmed: "已确认", provisional: "待复核",
+    failed: "失败", none: "—",
+  };
+  const targetLabel = {
+    "workbuddy-cn": "WorkBuddy CN", "qoder-cn": "Qoder CN",
+    qoder: "Qoder", "doubao-work": "豆包工作",
+  };
+
   async function renderApps() {
-    const rows = JSON.parse(await Bound.AppsList());
+    const rows = asJSON(await Bound.AppsList());
     const body = document.getElementById("apps-body");
     body.innerHTML = "";
     rows.forEach(function (r) {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        "<td>" + r.target + "</td>" +
+        "<td>" + (targetLabel[r.target] || r.target) + "</td>" +
         "<td>" + (r.enabled ? "是" : "否") + "</td>" +
-        '<td class="health ' + r.aggregate_health + '">' + r.aggregate_health + "</td>" +
+        '<td class="health ' + r.aggregate_health + '">' +
+        (healthLabel[r.aggregate_health] || r.aggregate_health) + "</td>" +
         "<td>" + r.account_count + "</td>" +
-        '<td class="result ' + r.today_result + '">' + r.today_result + "</td>" +
+        '<td class="result ' + r.today_result + '">' +
+        (resultLabel[r.today_result] || r.today_result) + "</td>" +
         "<td>" + (r.last_invocation || "无") + "</td>";
       body.appendChild(tr);
     });
@@ -166,7 +193,7 @@
 
   // 账号管理页（无任何密码/验证码/扫码输入）。
   async function renderAccounts() {
-    const list = JSON.parse(await Bound.AccountsList());
+    const list = asJSON(await Bound.AccountsList());
     const body = document.getElementById("accounts-body");
     body.innerHTML = "";
     list.forEach(function (a) {
@@ -240,7 +267,7 @@
       document.getElementById("log-state").value,
       50, logCursor
     ).then(function (raw) {
-      const page = JSON.parse(raw);
+      const page = asJSON(raw);
       const body = document.getElementById("logs-body");
       (page.entries || []).forEach(function (e) {
         const tr = document.createElement("tr");
@@ -261,7 +288,7 @@
   // Agent 接入页：配对/连通/最近调用/计划指引。
   function renderAgent() {
     Bound.AgentStatus().then(function (raw) {
-      const view = JSON.parse(raw);
+      const view = asJSON(raw);
       const body = document.getElementById("agent-body");
       body.innerHTML = "";
       (view.hosts || []).forEach(function (h) {
@@ -281,7 +308,7 @@
   // 插件页：市场/签名/更新、开发者模式、审计。
   function renderPlugins() {
     Bound.PluginsList().then(function (raw) {
-      const view = JSON.parse(raw);
+      const view = asJSON(raw);
       const body = document.getElementById("plugins-body");
       body.innerHTML = "";
       (view.plugins || []).forEach(function (p) {

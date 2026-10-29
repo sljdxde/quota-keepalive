@@ -105,6 +105,12 @@ func (a *App) Serve(ctx context.Context, addr string) (*http.Server, error) {
 // Store 暴露底层 store（供形态层做额外接线）。
 func (a *App) Store() *store.Store { return a.store }
 
+// ConfigDir 返回当前配置目录（供状态输出与 GUI 接线）。
+func (a *App) ConfigDir() string { return a.cfg.ConfigDir }
+
+// AdaptersRoot 返回适配器父目录（供状态输出）。
+func (a *App) AdaptersRoot() string { return a.cfg.AdaptersRoot }
+
 // Loaded 暴露适配器加载结果（供形态层/诊断使用）。
 func (a *App) LoadedAdapters() []Loaded { return a.loaded }
 

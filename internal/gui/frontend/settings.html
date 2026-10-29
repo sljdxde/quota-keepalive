@@ -22,9 +22,14 @@
 <script type="module">
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
 
+  function asJSON(v) {
+    if (typeof v === "string") return JSON.parse(v);
+    return v;
+  }
+
   async function init() {
-    const schema = JSON.parse(await Bound.SettingsSchema());
-    const values = JSON.parse(await Bound.SettingsGet());
+    const schema = asJSON(await Bound.SettingsSchema());
+    const values = asJSON(await Bound.SettingsGet());
     const form = document.getElementById("form");
 
     // 表单完全由 schema 生成：新增开关只需在 schema 追加，无需改本文件。

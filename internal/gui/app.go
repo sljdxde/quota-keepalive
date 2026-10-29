@@ -5,8 +5,10 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed frontend
@@ -92,6 +94,27 @@ func New(deps Deps) *App {
 		settings.Show()
 		settings.Focus()
 	})
+
+	// 面板「打开主窗口」入口。
+	wails.Event.On("open-main", func(*application.CustomEvent) {
+		main.Show()
+		main.Focus()
+	})
+
+	// 测试钩子：QKA_DEBUG_SHOW=main/settings/both 时，启动完成后显示对应窗口（不影响正式行为）。
+	if debugShow := os.Getenv("QKA_DEBUG_SHOW"); debugShow != "" {
+		wails.Event.OnApplicationEvent(events.Mac.ApplicationDidFinishLaunching, func(*application.ApplicationEvent) {
+			switch debugShow {
+			case "main":
+				main.Show()
+			case "settings":
+				settings.Show()
+			case "both":
+				main.Show()
+				settings.Show()
+			}
+		})
+	}
 
 	// 托盘菜单。
 	menu := application.NewMenu()

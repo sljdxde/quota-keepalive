@@ -51,7 +51,8 @@ func TestUnknownCommandReturnsErrorCode(t *testing.T) {
 }
 
 func TestUnimplementedModeReportsStableJSONStatus(t *testing.T) {
-	for _, mode := range []string{"tray", "panel", "bridge", "tui", "update"} {
+	// tray 已落地为真实菜单栏形态；其余形态保持显式未实现。
+	for _, mode := range []string{"panel", "bridge", "tui", "update"} {
 		out, _, env := newTestEnv(mode, "--json")
 		code := Run(context.Background(), env)
 		if code != 0 {

@@ -90,7 +90,11 @@ func (a *App) runCheckin(ctx context.Context, args map[string]any) (any, error) 
 	if operation == "" {
 		operation = "checkin"
 	}
+	return a.runOperation(ctx, target, accountID, operation)
+}
 
+// runOperation 是类型化的单账号×操作执行核心（checkin / keepalive 共用）。
+func (a *App) runOperation(ctx context.Context, target, accountID, operation string) (any, error) {
 	host, ok := a.hosts[target]
 	if !ok {
 		return nil, fmt.Errorf("目标适配器未运行: %s", target)

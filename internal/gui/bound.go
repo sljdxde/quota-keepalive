@@ -10,6 +10,8 @@ import (
 
 // Deps 是 GUI 所需的后端能力（由应用装配注入）。
 type Deps struct {
+	// Targets 是受支持目标应用的有序清单（应用管理页始终列出，即使 0 账号）。
+	Targets []string
 	// Status 返回当前状态视图。
 	Status func(ctx context.Context) (status.View, error)
 	// Plan 返回只读预演。
@@ -101,7 +103,7 @@ func (s *BoundService) AppsList() (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(AggregateApps(view))
+	return json.Marshal(AggregateApps(view, s.deps.Targets))
 }
 
 // AccountsList 返回所有账号（含来源）。

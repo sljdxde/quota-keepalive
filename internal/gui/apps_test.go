@@ -29,9 +29,9 @@ func TestAggregateApps(t *testing.T) {
 		},
 	}
 
-	rows := AggregateApps(view)
-	if len(rows) != 2 {
-		t.Fatalf("应聚合为 2 个应用，实际 %d", len(rows))
+	rows := AggregateApps(view, []string{"workbuddy-cn", "qoder-cn", "qoder", "doubao-work"})
+	if len(rows) != 4 {
+		t.Fatalf("应始终列出 4 个目标，实际 %d", len(rows))
 	}
 
 	wb := rows[0]
@@ -50,5 +50,15 @@ func TestAggregateApps(t *testing.T) {
 
 	if rows[1].TodayResult != "provisional" {
 		t.Errorf("provisional 应聚合为 provisional，实际 %s", rows[1].TodayResult)
+	}
+
+	// 无账号的目标（qoder）应保留占位行。
+	empty := rows[2]
+	if empty.Target != "qoder" || empty.AccountCount != 0 {
+		t.Fatalf("无账号目标应保留占位，实际 %+v", empty)
+	}
+	if empty.AggregateHealth != "no_account" || empty.TodayResult != "none" {
+		t.Errorf("无账号目标健康/今日应为 no_account/none，实际 %s/%s",
+			empty.AggregateHealth, empty.TodayResult)
 	}
 }

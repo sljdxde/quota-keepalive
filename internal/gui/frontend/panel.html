@@ -3,68 +3,236 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: -apple-system, sans-serif; margin: 0; padding: 12px; width: 300px;
-         background: #1e1e1e; color: #e6e6e6; font-size: 13px; }
-  h1 { font-size: 14px; margin: 0 0 8px; }
-  .acct { padding: 6px 0; border-top: 1px solid #333; }
-  .state { float: right; }
-  .state.failed { color: #ff5f57; }
-  .state.ok { color: #30d158; }
-  .state.pending { color: #ffd60a; }
-  .meta { color: #999; font-size: 11px; margin-top: 4px; }
-  button { margin-top: 10px; width: 100%; padding: 6px; border: 0; border-radius: 6px;
-           background: #0a84ff; color: #fff; cursor: pointer; }
+  :root {
+    --bg: #ffffff;
+    --text: #1d1d1f;
+    --secondary: #6e6e73;
+    --separator: rgba(0, 0, 0, 0.08);
+    --brand: #0ea371;
+    --green: #30c05c;
+    --yellow: #ff9f0a;
+    --red: #ff3b30;
+    --btn-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e;
+      --text: #f5f5f7;
+      --secondary: #98989f;
+      --separator: rgba(255, 255, 255, 0.10);
+      --green: #30d158;
+      --yellow: #ffd60a;
+      --red: #ff453a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12.5px;
+    width: 296px;
+    -webkit-user-select: none;
+  }
+  .header {
+    display: flex; align-items: center; gap: 7px;
+    padding: 11px 14px 9px;
+  }
+  .header .logo { width: 15px; height: 15px; flex: none; }
+  .header .title { font-weight: 600; font-size: 13px; }
+  .header .spacer { flex: 1; }
+  .header .overall { font-size: 11px; }
+  .overall.ok { color: var(--green); }
+  .overall.pending { color: var(--yellow); }
+  .overall.failed { color: var(--red); }
+
+  .target { border-top: 1px solid var(--separator); padding: 7px 14px; }
+  .target .name { font-weight: 600; font-size: 11.5px; color: var(--secondary);
+                 margin-bottom: 3px; }
+  .acct { padding: 3px 0; }
+  .acct .top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .acct .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 20px; flex: none; }
+  .badge.ok { color: var(--green); background: rgba(48, 209, 88, 0.14); }
+  .badge.pending { color: var(--yellow); background: rgba(255, 159, 10, 0.16); }
+  .badge.failed { color: var(--red); background: rgba(255, 69, 58, 0.14); }
+  .badge.reauth { color: var(--yellow); background: rgba(255, 159, 10, 0.16); }
+  .ops { color: var(--secondary); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }
+  .ops .ok { color: var(--green); }
+  .ops .failed { color: var(--red); }
+  .ops .pending { color: var(--yellow); }
+
+  .meta { border-top: 1px solid var(--separator); padding: 8px 14px;
+          color: var(--secondary); font-size: 11px; }
+  .actions { border-top: 1px solid var(--separator); padding: 10px 14px 12px;
+             display: flex; flex-direction: column; gap: 7px; }
+  button {
+    width: 100%; padding: 7px; border: 0; border-radius: 7px;
+    font-family: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  button.primary { background: var(--brand); color: var(--btn-text); font-weight: 600; }
+  button.ghost { background: transparent; color: var(--brand); border: 1px solid var(--brand); }
+  .empty { padding: 14px; text-align: center; color: var(--secondary);
+           border-top: 1px solid var(--separator); }
 </style>
 </head>
 <body>
-  <h1>qka</h1>
-  <div id="accounts"></div>
+  <div class="header">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M12 32 H21 L27 15 L35 47 L41 32 H52" fill="none"
+            stroke="var(--brand)" stroke-width="7" stroke-linecap="round"
+            stroke-linejoin="round"/>
+    </svg>
+    <span class="title">qka</span>
+    <span class="spacer"></span>
+    <span class="overall" id="overall"></span>
+  </div>
+
+  <div id="targets"></div>
   <div class="meta" id="lastInvocation"></div>
-  <button id="run">立即执行</button>
+
+  <div class="actions">
+    <button class="primary" id="run">立即全部执行</button>
+    <button class="ghost" id="open-main">打开主窗口</button>
+  </div>
 
 <script type="module">
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
-  import { Window } from "/wails/runtime.js";
+  import { Window, Events } from "/wails/runtime.js";
 
-  // Esc 关闭面板（不抢焦点；失焦即隐由原生 AttachWindow 提供）。
+  // Esc 关闭面板（失焦即隐由原生 AttachWindow 提供）。
   window.addEventListener("keydown", function (e) {
     if (e.key === "Escape") Window.Hide();
   });
 
-  const qka = {
-    status: async function () {
-      return JSON.parse(await Bound.Status());
-    },
-    run: function () {
-      return Bound.Run();
-    },
+  const targetNames = {
+    "workbuddy-cn": "WorkBuddy CN",
+    "qoder-cn": "Qoder CN",
+    "qoder": "Qoder",
+    "doubao-work": "豆包工作",
   };
 
-  function renderStatus(view) {
-    const box = document.getElementById("accounts");
+  function badgeClass(state) {
+    if (!state) return "pending";
+    if (state.indexOf("failed") >= 0) return "failed";
+    if (state.indexOf("confirmed") >= 0 || state.indexOf("completed") >= 0) return "ok";
+    return "pending";
+  }
+  function badgeLabel(state) {
+    switch (badgeClass(state)) {
+      case "ok": return "已完成";
+      case "failed": return "失败";
+      default: return "待复核";
+    }
+  }
+  const opLabels = { checkin: "签到", keepalive: "保活" };
+
+  function render(view) {
+    const box = document.getElementById("targets");
     box.innerHTML = "";
+
+    const byTarget = {};
     (view.accounts || []).forEach(function (a) {
-      const div = document.createElement("div");
-      div.className = "acct";
-      const state = (a.operations[0] && a.operations[0].state) || "pending";
-      const cls = state.indexOf("failed") >= 0 ? "failed"
-                : state.indexOf("confirmed") >= 0 || state.indexOf("completed") >= 0 ? "ok"
-                : "pending";
-      div.innerHTML = a.display_name + '<span class="state ' + cls + '">' + state + "</span>";
-      box.appendChild(div);
+      (byTarget[a.target] = byTarget[a.target] || []).push(a);
     });
+
+    const targets = Object.keys(byTarget).sort();
+    if (targets.length === 0) {
+      box.innerHTML = '<div class="empty">暂无已启用账号<br>请在主窗口「账号管理」中发现或添加账号</div>';
+    }
+
+    targets.forEach(function (t) {
+      const sec = document.createElement("div");
+      sec.className = "target";
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = targetNames[t] || t;
+      sec.appendChild(name);
+
+      byTarget[t].forEach(function (a) {
+        const acct = document.createElement("div");
+        acct.className = "acct";
+
+        const top = document.createElement("div");
+        top.className = "top";
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = a.display_name;
+
+        // 来源失效优先显示「待重登」。
+        let overallState = (a.operations[0] && a.operations[0].state) || "";
+        let cls = badgeClass(overallState);
+        let label = badgeLabel(overallState);
+        if (a.source_health === "reauth_required") {
+          cls = "reauth"; label = "待重登";
+        }
+        const badge = document.createElement("span");
+        badge.className = "badge " + cls;
+        badge.textContent = label;
+        top.appendChild(who);
+        top.appendChild(badge);
+        acct.appendChild(top);
+
+        if (a.operations && a.operations.length) {
+          const ops = document.createElement("div");
+          ops.className = "ops";
+          a.operations.forEach(function (op) {
+            const line = document.createElement("div");
+            const c = badgeClass(op.state);
+            const txt = (opLabels[op.operation] || op.operation) + " " +
+                        (op.state || "");
+            line.innerHTML = '<span class="' + c + '">' + txt + "</span>";
+            ops.appendChild(line);
+          });
+          acct.appendChild(ops);
+        }
+
+        sec.appendChild(acct);
+      });
+
+      box.appendChild(sec);
+    });
+
+    // 整体状态（绿=全部完成 / 黄=待复核 / 红=有失败）。
+    let overall = "ok", overallText = "全部完成";
+    (view.accounts || []).forEach(function (a) {
+      if (a.source_health === "reauth_required") { overall = "pending"; overallText = "有待重登"; }
+      (a.operations || []).forEach(function (op) {
+        if (badgeClass(op.state) === "failed") { overall = "failed"; overallText = "有失败"; }
+        else if (badgeClass(op.state) === "pending" && overall !== "failed") {
+          overall = "pending"; overallText = "待复核";
+        }
+      });
+    });
+    const ov = document.getElementById("overall");
+    ov.className = "overall " + overall;
+    ov.textContent = overallText;
+
     document.getElementById("lastInvocation").textContent =
-      "最近调用: " + (view.last_invocation || "无");
+      "最近调用：" + (view.last_invocation || "无");
+  }
+
+  function asJSON(v) {
+    if (typeof v === "string") return JSON.parse(v);
+    return v;
   }
 
   async function refresh() {
-    renderStatus(await qka.status());
+    try {
+      render(asJSON(await Bound.Status()));
+    } catch (e) {
+      document.getElementById("targets").innerHTML =
+        '<div class="empty">加载失败：' + (e && e.message ? e.message : String(e)) + "</div>";
+    }
   }
 
   document.getElementById("run").onclick = async function () {
-    // 立即执行走同一服务链（Bound.Run 内部先预演）。
-    await qka.run();
+    await Bound.Run();
     await refresh();
+  };
+  document.getElementById("open-main").onclick = function () {
+    Events.Emit("open-main");
   };
 
   refresh();

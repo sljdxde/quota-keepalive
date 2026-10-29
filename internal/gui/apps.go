@@ -46,9 +46,25 @@ func worstToday(states []string) string {
 }
 
 // AggregateApps 把状态视图按目标应用聚合为应用管理页行。
-func AggregateApps(view status.View) []AppRow {
+// 始终为 targets 中的每个目标输出一行（即使 0 账号），保证新安装也能看到受支持目标。
+func AggregateApps(view status.View, targets []string) []AppRow {
 	byTarget := map[string]*AppRow{}
-	order := []string{}
+	order := make([]string, 0, len(targets))
+
+	// 先按目标清单播种空行。
+	for _, t := range targets {
+		if _, ok := byTarget[t]; ok {
+			continue
+		}
+		// 新目标默认停用、无账号：健康度标为 no_account，今日结果 none。
+		byTarget[t] = &AppRow{
+			Target:          t,
+			Enabled:         false,
+			AggregateHealth: "no_account",
+			TodayResult:     "none",
+		}
+		order = append(order, t)
+	}
 
 	for _, a := range view.Accounts {
 		row, ok := byTarget[a.Target]
@@ -56,6 +72,13 @@ func AggregateApps(view status.View) []AppRow {
 			row = &AppRow{Target: a.Target, AggregateHealth: "healthy", TodayResult: "confirmed"}
 			byTarget[a.Target] = row
 			order = append(order, a.Target)
+		}
+		// 有账号后，空账号占位健康度让位于真实聚合。
+		if row.AggregateHealth == "no_account" {
+			row.AggregateHealth = "healthy"
+		}
+		if row.TodayResult == "none" {
+			row.TodayResult = "confirmed"
 		}
 		row.AccountCount++
 		if a.Enabled {

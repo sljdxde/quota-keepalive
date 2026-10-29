@@ -3,8 +3,20 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
+	"strings"
 )
+
+// launchedFromBundle 判定是否从 .app 包内启动（可执行路径位于 *.app/Contents/MacOS/）。
+// 双击 .app 时没有命令行参数，此时应直接进入菜单栏形态而非打印用法。
+func launchedFromBundle() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(exe, ".app/Contents/MacOS/")
+}
 
 // modeNames 是单二进制承诺的全部形态，顺序即对外展示顺序。
 var modeNames = []string{"serve", "tray", "panel", "bridge", "tui", "doctor", "update", "autostart"}
@@ -16,13 +28,14 @@ func unimplemented(name string) Handler {
 	}
 }
 
-// buildHandlers 装配形态表：serve 为真实实现，其余形态保持显式未实现。
+// buildHandlers 装配形态表：serve 与 tray 为真实实现，其余形态保持显式未实现。
 func buildHandlers(env *Env) map[string]Handler {
 	h := map[string]Handler{}
 	for _, name := range modeNames {
 		h[name] = unimplemented(name)
 	}
 	h["serve"] = serveHandler
+	h["tray"] = trayHandler
 	return h
 }
 
@@ -47,6 +60,17 @@ const usageText = `qka — Quota KeepAlive Agent（额度保活代理）
 // Run 执行一次命令，返回进程退出码。
 func Run(ctx context.Context, env *Env) int {
 	if len(env.Args) == 0 {
+		// 从 .app 双击启动（无命令行参数）时进入菜单栏形态；终端无参数时打印用法。
+		if launchedFromBundle() {
+			resp, err := trayHandler(ctx, env, nil)
+			if err != nil {
+				return fail(env, nil, &ErrorInfo{Code: "command_failed", Message: err.Error()})
+			}
+			if resp == nil {
+				return 0
+			}
+			return 0
+		}
 		fmt.Fprint(env.Stdout, usageText)
 		return 0
 	}
