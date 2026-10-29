@@ -2,8 +2,8 @@ package adapterwiring
 
 import (
 	"context"
-	"encoding/json"
 	"database/sql"
+	"encoding/json"
 
 	"qka/internal/capabilities"
 )

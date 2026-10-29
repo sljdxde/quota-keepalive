@@ -154,8 +154,8 @@ func TestDiscoverReturnsAccountsWithoutToken(t *testing.T) {
 
 func TestDiscoverFailureScenarios(t *testing.T) {
 	cases := []struct {
-		name     string
-		sc       scenario
+		name       string
+		sc         scenario
 		wantStatus string
 	}{
 		{
