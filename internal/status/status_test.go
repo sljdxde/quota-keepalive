@@ -172,6 +172,26 @@ func TestPlanValidateOmitsDisabledAccounts(t *testing.T) {
 	}
 }
 
+func TestPlanValidateTreatsCheckinRefusalsAsTerminal(t *testing.T) {
+	for _, state := range []string{"already", "ineligible", "inactive"} {
+		t.Run(state, func(t *testing.T) {
+			st, svc := setup(t)
+			seedOp(t, st, "q_1", "checkin", state)
+			plan, err := svc.PlanValidate(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range plan.Items {
+				if item.AccountID == "q_1" && item.Operation == "checkin" {
+					if item.Transition != "no_change" {
+						t.Errorf("签到结果 %s 当日应抑制重试，实际 %+v", state, item)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestStatusHasNoScheduleFields(t *testing.T) {
 	_, svc := setup(t)
 	view, _ := svc.Status(context.Background())
