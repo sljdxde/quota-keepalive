@@ -136,6 +136,16 @@ WHERE target = ? AND account_id = ? AND id = ?`,
 	return err
 }
 
+// MarkSourceHealthy restores a managed source after the official refresh path
+// succeeds. Imported sources remain read-only and are never changed here.
+func (s *Service) MarkSourceHealthy(ctx context.Context, target, accountID, sourceID string) error {
+	_, err := s.db.ExecContext(ctx, `
+UPDATE sources SET health = 'healthy', updated_at = ?
+WHERE target = ? AND account_id = ? AND id = ? AND kind = 'managed'`,
+		nowTS(), target, accountID, sourceID)
+	return err
+}
+
 // List 返回指定目标的全部账号（含来源）。
 func (s *Service) List(ctx context.Context, target string) ([]Account, error) {
 	// target 为空时列出所有目标应用的账号。

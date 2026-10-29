@@ -62,6 +62,8 @@ type App struct {
 
 	pendingCredentials *capabilities.LoginCredentialStore
 	credentials        *capabilities.CredentialService
+
+	workBuddySessions workBuddyManagedSessionCache
 }
 
 // Build 装配应用：打开 store、发现并启动适配器、构造各服务。
