@@ -1,0 +1,22 @@
+{
+  "id": "my-adapter",
+  "name": "My Adapter",
+  "version": "0.1.0",
+  "entry": "index.mjs",
+  "capabilities": ["http.fetch", "log.write"],
+  "needs": ["http.fetch", "log.write"],
+  "actions": [
+    {
+      "op": "accounts.discover",
+      "effects": {
+        "accessesNetwork": true,
+        "mutatesTarget": false,
+        "spendsCredits": false,
+        "idempotent": true,
+        "mayRequireReauth": false,
+        "mutatesLocalState": false
+      }
+    }
+  ],
+  "compatibility": { "qka": ">=1.0" }
+}
