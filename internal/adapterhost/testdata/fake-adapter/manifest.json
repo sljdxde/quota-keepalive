@@ -1,0 +1,15 @@
+{
+  "id": "fake",
+  "name": "Fake Adapter",
+  "version": "1.0.0",
+  "entry": "./index.mjs",
+  "capabilities": ["accounts.discover", "checkin"],
+  "needs": ["http.outbound"],
+  "actions": [
+    { "op": "checkin", "effects": { "accessesNetwork": true, "mutatesTarget": true, "idempotent": true } },
+    { "op": "crash", "effects": { "accessesNetwork": false, "mutatesTarget": false } },
+    { "op": "oversize", "effects": { "accessesNetwork": false, "mutatesTarget": false } }
+  ],
+  "dayRule": { "tz": "Asia/Shanghai" },
+  "compatibility": { "qka": ">=1.0.0" }
+}
