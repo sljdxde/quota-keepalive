@@ -20,6 +20,8 @@ type Deps struct {
 	Settings func() *settings.Settings
 	// SaveSettings 保存设置。
 	SaveSettings func(*settings.Settings) error
+	// Accounts 是账号管理桥接。
+	Accounts AccountBridge
 }
 
 // BoundService 是暴露给前端的服务。
@@ -75,4 +77,52 @@ func (s *BoundService) SettingsSet(key string, value bool) error {
 		return err
 	}
 	return s.deps.SaveSettings(cur)
+}
+
+// AppsList 返回应用管理页聚合行。
+func (s *BoundService) AppsList() (json.RawMessage, error) {
+	view, err := s.deps.Status(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(AggregateApps(view))
+}
+
+// AccountsList 返回所有账号（含来源）。
+func (s *BoundService) AccountsList() (json.RawMessage, error) {
+	list, err := s.deps.Accounts.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(list)
+}
+
+// AccountsSetEnabled 逐账号启停。
+func (s *BoundService) AccountsSetEnabled(target, accountID string, enabled bool) error {
+	return s.deps.Accounts.SetEnabled(context.Background(), target, accountID, enabled)
+}
+
+// AccountsDelete 删除 qka 映射。
+func (s *BoundService) AccountsDelete(target, accountID string) error {
+	return s.deps.Accounts.Delete(context.Background(), target, accountID)
+}
+
+// AccountsPinSource 设置来源优先级。
+func (s *BoundService) AccountsPinSource(target, accountID, sourceID string, pinned bool) error {
+	return s.deps.Accounts.PinSource(context.Background(), target, accountID, sourceID, pinned)
+}
+
+// AccountsDiscover 经适配器发现目标应用账号。
+func (s *BoundService) AccountsDiscover(target string) error {
+	return s.deps.Accounts.Discover(context.Background(), target)
+}
+
+// AccountsBeginLogin 发起官方登录。
+func (s *BoundService) AccountsBeginLogin(target string) error {
+	return s.deps.Accounts.BeginLogin(context.Background(), target)
+}
+
+// AccountsImportSource 导入只读来源。
+func (s *BoundService) AccountsImportSource(target, accountID, sourceID string) error {
+	return s.deps.Accounts.ImportSource(context.Background(), target, accountID, sourceID)
 }

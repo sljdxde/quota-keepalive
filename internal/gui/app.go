@@ -48,10 +48,10 @@ func New(deps Deps) *App {
 		Name:  "panel",
 		Title: "qka",
 		Width: 320, Height: 420,
-		Frameless:    true,
-		AlwaysOnTop:  true,
-		Hidden:       true,
-		URL:          "/panel.html",
+		Frameless:   true,
+		AlwaysOnTop: true,
+		Hidden:      true,
+		URL:         "/panel.html",
 	})
 
 	// 主窗口：五页签，初始隐藏。

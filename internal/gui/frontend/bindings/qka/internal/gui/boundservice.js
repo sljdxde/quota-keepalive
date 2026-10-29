@@ -16,6 +16,84 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as json$0 from "../../../encoding/json/models.js";
 
 /**
+ * AccountsBeginLogin 发起官方登录。
+ * @param {string} target
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsBeginLogin(target) {
+    return $Call.ByID(2607732007, target);
+}
+
+/**
+ * AccountsDelete 删除 qka 映射。
+ * @param {string} target
+ * @param {string} accountID
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsDelete(target, accountID) {
+    return $Call.ByID(2828095758, target, accountID);
+}
+
+/**
+ * AccountsDiscover 经适配器发现目标应用账号。
+ * @param {string} target
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsDiscover(target) {
+    return $Call.ByID(3822135602, target);
+}
+
+/**
+ * AccountsImportSource 导入只读来源。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {string} sourceID
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsImportSource(target, accountID, sourceID) {
+    return $Call.ByID(3870909877, target, accountID, sourceID);
+}
+
+/**
+ * AccountsList 返回所有账号（含来源）。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function AccountsList() {
+    return $Call.ByID(3456400181);
+}
+
+/**
+ * AccountsPinSource 设置来源优先级。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {string} sourceID
+ * @param {boolean} pinned
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsPinSource(target, accountID, sourceID, pinned) {
+    return $Call.ByID(1038265597, target, accountID, sourceID, pinned);
+}
+
+/**
+ * AccountsSetEnabled 逐账号启停。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsSetEnabled(target, accountID, enabled) {
+    return $Call.ByID(1343224100, target, accountID, enabled);
+}
+
+/**
+ * AppsList 返回应用管理页聚合行。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function AppsList() {
+    return $Call.ByID(4011214453);
+}
+
+/**
  * PlanValidate 返回只读预演。
  * @returns {$CancellablePromise<json$0.RawMessage>}
  */
