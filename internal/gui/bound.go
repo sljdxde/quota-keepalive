@@ -26,6 +26,10 @@ type Deps struct {
 	Logs func(ctx context.Context, filter LogFilter, limit int, cursor int64) (LogPage, error)
 	// AgentStatus 返回宿主接入信息（配对/连通/最近调用/计划指引）。
 	AgentStatus func(ctx context.Context) (AgentView, error)
+	// Plugins 返回插件页视图（市场/签名/更新/审计）。
+	Plugins func(ctx context.Context) (PluginsView, error)
+	// SetDevMode 切换开发者模式。
+	SetDevMode func(enabled bool) error
 }
 
 // BoundService 是暴露给前端的服务。
@@ -156,4 +160,24 @@ func (s *BoundService) AgentStatus() (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.Marshal(view)
+}
+
+// PluginsList 返回插件页视图（市场条目、版本、签名、更新状态与审计）。
+func (s *BoundService) PluginsList() (json.RawMessage, error) {
+	if s.deps.Plugins == nil {
+		return nil, errNotWired
+	}
+	view, err := s.deps.Plugins(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// SetDevMode 切换开发者模式。
+func (s *BoundService) SetDevMode(enabled bool) error {
+	if s.deps.SetDevMode == nil {
+		return errNotWired
+	}
+	return s.deps.SetDevMode(enabled)
 }

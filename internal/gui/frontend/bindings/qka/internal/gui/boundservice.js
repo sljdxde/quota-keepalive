@@ -124,11 +124,28 @@ export function PlanValidate() {
 }
 
 /**
+ * PluginsList 返回插件页视图（市场条目、版本、签名、更新状态与审计）。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function PluginsList() {
+    return $Call.ByID(3967178039);
+}
+
+/**
  * Run 立即执行：先取预演（同一服务链），再执行。
  * @returns {$CancellablePromise<void>}
  */
 export function Run() {
     return $Call.ByID(3185373102);
+}
+
+/**
+ * SetDevMode 切换开发者模式。
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetDevMode(enabled) {
+    return $Call.ByID(638739917, enabled);
 }
 
 /**
