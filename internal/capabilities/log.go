@@ -23,6 +23,16 @@ func NewLogService(db *sql.DB, grant Grant, now Clock) *LogService {
 
 // Write 写入一条日志；target/account/operation 由命名空间强制，适配器无法指定其他作用域。
 func (l *LogService) Write(ctx context.Context, ns Namespace, level, message string) error {
+	return l.WriteWithState(ctx, ns, "", level, message)
+}
+
+// WriteWithState 写入一条带每日操作状态的日志；状态仅由调用方提供，
+// 命名空间仍由服务端强制。
+func (l *LogService) WriteWithState(
+	ctx context.Context,
+	ns Namespace,
+	state, level, message string,
+) error {
 	if err := l.grant.Authorize("log.write"); err != nil {
 		return err
 	}
@@ -34,9 +44,9 @@ func (l *LogService) Write(ctx context.Context, ns Namespace, level, message str
 
 	now := l.now()
 	_, err := l.db.ExecContext(ctx, `
-INSERT INTO logs (ts, target, account_id, operation, level, message)
-VALUES (?, ?, ?, ?, ?, ?)`,
+INSERT INTO logs (ts, target, account_id, operation, state, level, message)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		now.UTC().Format(time.RFC3339),
-		ns.Target, ns.AccountID, ns.Operation, level, message)
+		ns.Target, ns.AccountID, ns.Operation, state, level, message)
 	return err
 }

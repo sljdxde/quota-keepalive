@@ -52,3 +52,25 @@
 QKA 在受控测试中允许 `127.0.0.1` 的 HTTP 假目标；安装态使用腾讯官方 HTTPS API。动态 `authUrl` 的主机不在本地硬编码，界面只显示去掉查询参数的官方 origin。
 
 完整 token、refresh token、uid、手机号和企业身份只写入 QKA 的待验证或受管凭据存储（Keychain 优先，0600 文件回退），不进入数据库、日志、错误、MCP 或 UI。升级上游插件协议前必须先补受控假目标对照测试并更新本基线。
+
+## 每日签到
+
+受管来源的签到使用与 Magpie WorkBuddy 插件一致的“先查状态、再领取”协议。两个请求都使用 `POST`，请求体为 `{}`，并携带受管来源的 `Authorization: Bearer`、`X-Domain`、`X-User-Id`、`X-Product: SaaS`、`X-IDE-Type: WorkBuddy` 和企业身份头（存在时）。
+
+1. `POST /v2/billing/meter/checkin-activity-status`
+   - 读取 `active`、`today_checked_in`、`streak_days`、`daily_credit`、`today_credit`。
+   - `active=false` 时不得调用领取接口，返回活动未开始或已结束。
+   - `today_checked_in=true` 时不得调用领取接口，返回今日已领取。
+2. 仅当 `active=true && today_checked_in=false` 时调用 `POST /v2/billing/meter/daily-checkin`。
+   - 成功数据读取 `credit`、`streak_days`、`is_streak_day`、`credit_delayed`、`message`。
+   - `1001` 映射为已领取（`done`/`already`）。
+   - `1002` 映射为无资格（`ineligible`）。
+   - `1003` 映射为活动结束（`inactive`）。
+   - 其他业务码或非 2xx 结果进入可重试失败；401 的“应用内签到兜底”判定由后续工单单独处理，当前不得直接宣称自动签到成功。
+
+到账证据规则：
+
+- 只有 `claimed` 或 `done` 且存在非零 `credit` 或明确上游消息时，才可按证据确认到账。
+- `credit_delayed=true` 表示奖励尚未到账，即使 `credit` 非零或 `message` 非空，也只能记录为“已领取，待确认”。
+- 领取成功但没有任何明确回执时，只能记录为“已领取，待确认”，不得写成“已到账”。
+- 同一账号同一北京日进入 `claimed`、`done`、`ineligible` 或 `inactive` 后，后续手动或宿主调用不再发起领取请求；单个账号失败不得中止其他账号。

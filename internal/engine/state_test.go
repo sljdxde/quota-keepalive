@@ -24,6 +24,8 @@ func TestCheckinTransitions(t *testing.T) {
 		{"午后成功", afternoon(), RSuccess, SignedConfirmed},
 		{"已领取", morning(), RAlready, Already},
 		{"活动未放量", morning(), RNone, None},
+		{"无资格", morning(), RIneligible, Ineligible},
+		{"活动结束", morning(), RInactive, Inactive},
 		{"可重试失败", morning(), RRetryable, FailedRetryable},
 		{"最终失败", morning(), RFinal, FailedFinal},
 	}
@@ -56,7 +58,7 @@ func TestKeepaliveTransitions(t *testing.T) {
 }
 
 func TestTerminalStatesSuppressReexecution(t *testing.T) {
-	terminal := []State{SignedProvisional, SignedConfirmed, Already, Completed}
+	terminal := []State{SignedProvisional, SignedConfirmed, Already, Ineligible, Inactive, Completed}
 	for _, s := range terminal {
 		if !s.IsTerminal() {
 			t.Errorf("%s 应抑制同日再次执行", s)

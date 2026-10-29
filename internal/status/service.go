@@ -180,7 +180,8 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 			}
 
 			switch state {
-			case "signed_confirmed", "signed_provisional", "completed", "already":
+			case "signed_confirmed", "signed_provisional", "completed",
+				"already", "ineligible", "inactive":
 				item.Conflicts = append(item.Conflicts, "同日已终态")
 			case "failed_retryable":
 				if cd, perr := time.Parse(time.RFC3339, cooldown); perr == nil && cd.After(now) {
