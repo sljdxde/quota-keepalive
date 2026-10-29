@@ -15,9 +15,10 @@ import (
 
 // scenario 描述受控假目标应呈现的状态。
 type scenario struct {
-	accountsStatus int              // /api/accounts 的状态码（0 表示 200）
-	accounts       []map[string]any // 账号列表
-	checkinFail    map[string]bool  // 哪些账号签到失败
+	accountsStatus  int              // /api/accounts 的状态码（0 表示 200）
+	accounts        []map[string]any // 账号列表
+	checkinFail     map[string]bool  // 哪些账号签到失败
+	checkinEvidence bool             // 是否返回余额/回执证据
 }
 
 func healthyAccounts() []map[string]any {
@@ -55,9 +56,15 @@ func newFakeTarget(t *testing.T, sc scenario) *httptest.Server {
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "error"})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		out := map[string]any{
 			"status": "success", "points": 200, "accountId": req.AccountID,
-		})
+		}
+		if sc.checkinEvidence {
+			out["balanceBefore"] = 100
+			out["balanceAfter"] = 300
+			out["receipt"] = "receipt-0001"
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	})
 
 	return httptest.NewServer(mux)
