@@ -3,7 +3,7 @@
   "name": "WorkBuddy CN",
   "version": "1.0.0",
   "entry": "index.mjs",
-  "capabilities": ["discover", "checkin"],
+  "capabilities": ["discover", "checkin", "keepalive"],
   "needs": ["http.outbound", "log.write", "credentials.resolve"],
   "actions": [
     {
@@ -20,6 +20,14 @@
         "accessesNetwork": true,
         "mutatesTarget": true,
         "idempotent": true
+      }
+    },
+    {
+      "op": "keepalive.run",
+      "effects": {
+        "accessesNetwork": true,
+        "mutatesTarget": true,
+        "idempotent": false
       }
     }
   ],

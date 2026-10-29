@@ -19,6 +19,9 @@ type scenario struct {
 	accounts        []map[string]any // 账号列表
 	checkinFail     map[string]bool  // 哪些账号签到失败
 	checkinEvidence bool             // 是否返回余额/回执证据
+	chatReply       string           // /api/chat 的真实模型回复（空 = 无回复）
+	chatCost        float64          // /api/chat 回执成本
+	chatFail        bool             // /api/chat 是否失败
 }
 
 func healthyAccounts() []map[string]any {
@@ -65,6 +68,17 @@ func newFakeTarget(t *testing.T, sc scenario) *httptest.Server {
 			out["receipt"] = "receipt-0001"
 		}
 		_ = json.NewEncoder(w).Encode(out)
+	})
+
+	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
+		if sc.chatFail {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"reply": sc.chatReply,
+			"cost":  sc.chatCost,
+		})
 	})
 
 	return httptest.NewServer(mux)
