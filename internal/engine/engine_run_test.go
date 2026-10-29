@@ -146,3 +146,47 @@ func TestRunNoneAndRetryableRemainEligibleNextDay(t *testing.T) {
 		t.Errorf("none 次日应可执行成功，实际 state=%s executed=%v", obs.State, obs.Executed)
 	}
 }
+
+func TestCurrentStateMissingRowIsPending(t *testing.T) {
+	e := newTestEngine(t, fixedClock(afternoon()))
+	state, err := e.CurrentState(context.Background(), checkinKey)
+	if err != nil {
+		t.Fatalf("缺失当日行不应报错: %v", err)
+	}
+	if state != Pending {
+		t.Errorf("缺失当日行应为 pending，实际 %s", state)
+	}
+}
+
+func TestCurrentStateReturnsDatabaseError(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(st.DB(), fixedClock(afternoon()), "test-holder")
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.CurrentState(context.Background(), checkinKey); err == nil {
+		t.Fatal("数据库读取失败必须返回错误，不能伪装成 pending")
+	}
+}
+
+func TestReconcileStateIfCurrentOnlyAppliesExpectedState(t *testing.T) {
+	e := newTestEngine(t, fixedClock(afternoon()))
+	ex := &countingExecutor{result: ExternalResult{Kind: RManualRequired}}
+	if _, err := e.Run(context.Background(), checkinKey, ex.exec()); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := e.ReconcileStateIfCurrent(
+		context.Background(), checkinKey, ManualRequired, Already, "已领取")
+	if err != nil || !updated {
+		t.Fatalf("当前状态匹配时应更新，updated=%v err=%v", updated, err)
+	}
+	updated, err = e.ReconcileStateIfCurrent(
+		context.Background(), checkinKey, ManualRequired, Already, "再次更新")
+	if err != nil || updated {
+		t.Fatalf("当前状态已变化时不得覆盖，updated=%v err=%v", updated, err)
+	}
+}

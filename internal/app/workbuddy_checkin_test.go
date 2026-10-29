@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,16 +20,22 @@ import (
 )
 
 type workBuddyCheckinTarget struct {
-	mu           sync.Mutex
-	active       bool
-	checked      bool
-	claimCode    int
-	claimCredit  float64
-	claimMessage string
-	claimDelayed bool
-	failUID      string
-	statuses     int
-	claims       int
+	mu                  sync.Mutex
+	active              bool
+	checked             bool
+	statusUnauthorized  bool
+	claimUnauthorized   bool
+	balanceUnauthorized bool
+	balanceNetworkFail  bool
+	claimCode           int
+	claimCredit         float64
+	claimMessage        string
+	claimDelayed        bool
+	failUID             string
+	statuses            int
+	claims              int
+	balances            int
+	paths               []string
 }
 
 func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
@@ -37,15 +44,28 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 
-		if got := r.Header.Get("Authorization"); got != "Bearer app-access" &&
-			got != "Bearer app-access-two" {
-			t.Errorf("Authorization 头错误: %q", got)
+		if r.URL.Path != "/v2/plugin/auth/token/refresh" {
+			if got := r.Header.Get("Authorization"); got != "Bearer app-access" &&
+				got != "Bearer app-access-two" {
+				t.Errorf("Authorization 头错误: %q", got)
+			}
 		}
+		f.paths = append(f.paths, r.URL.Path)
 		switch r.URL.Path {
+		case "/v2/plugin/auth/token/refresh":
+			writeWorkBuddyEnvelope(t, w, map[string]any{
+				"accessToken":  "app-access",
+				"refreshToken": "app-refresh-renewed",
+				"expiresIn":    3600,
+			})
 		case "/v2/billing/meter/checkin-activity-status":
 			f.statuses++
 			if f.failUID != "" && r.Header.Get("X-User-Id") == f.failUID {
 				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if f.statusUnauthorized {
+				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 			writeWorkBuddyEnvelope(t, w, map[string]any{
@@ -54,6 +74,10 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 			})
 		case "/v2/billing/meter/daily-checkin":
 			f.claims++
+			if f.claimUnauthorized {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			if f.claimCode != 0 {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]any{
@@ -67,6 +91,24 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 				"credit_delayed": f.claimDelayed,
 				"message":        f.claimMessage,
 			})
+		case "/billing/meter/get-user-resource-summary":
+			f.balances++
+			if f.balanceNetworkFail {
+				if hijacker, ok := w.(http.Hijacker); ok {
+					conn, _, err := hijacker.Hijack()
+					if err == nil {
+						_ = conn.Close()
+						return
+					}
+				}
+				http.Error(w, "network failure", http.StatusInternalServerError)
+				return
+			}
+			if f.balanceUnauthorized {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			writeWorkBuddyEnvelope(t, w, map[string]any{"IsPaidUser": true})
 		default:
 			t.Errorf("签到出现未预期请求: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -379,5 +421,352 @@ func TestWorkBuddyCheckinUsesOnlyManagedSource(t *testing.T) {
 		`SELECT COUNT(*) FROM daily_ops WHERE account_id = 'wb_imported'`).Scan(&count)
 	if count != 0 {
 		t.Errorf("导入来源拒绝后不得写入当日状态，实际 %d", count)
+	}
+}
+
+func TestWorkBuddyCheckin401WithWorkingBalanceEntersOwnAppFallback(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("签到兜底不应中止: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.ManualRequired {
+		t.Fatalf("签到 401 且余额可用应进入 manual_required，实际 %+v", got)
+	}
+	if strings.Contains(got.Message, "已到账") || strings.Contains(got.Message, "自动签到成功") {
+		t.Errorf("兜底不得显示自动签到成功，实际 %q", got.Message)
+	}
+	if !strings.Contains(got.Message, "请回 WorkBuddy App 签到") {
+		t.Errorf("兜底必须给出下一步，实际 %q", got.Message)
+	}
+	if target.balances != 1 {
+		t.Errorf("应以同一受管凭据只读查询余额一次，实际 %d", target.balances)
+	}
+
+	var logState, logMessage string
+	if err := a.store.DB().QueryRowContext(context.Background(),
+		`SELECT state, message FROM logs WHERE target = 'workbuddy-cn' AND account_id = ?`,
+		accountID).Scan(&logState, &logMessage); err != nil {
+		t.Fatalf("兜底结果应写入日志: %v", err)
+	}
+	if logState != string(engine.ManualRequired) || logMessage != got.Message {
+		t.Errorf("兜底日志错误: %s/%s", logState, logMessage)
+	}
+}
+
+func TestWorkBuddyCheckinBalance401RequiresReauth(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, claimUnauthorized: true, balanceUnauthorized: true,
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, acct, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("登录失效应由状态机记录: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.FailedRetryable {
+		t.Errorf("登录失效应可重登后重试，实际 %+v", got)
+	}
+	account, err := acct.Get(context.Background(), "workbuddy-cn", accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Sources[0].Health != accounts.HealthReauthRequired {
+		t.Errorf("余额也 401 应标记需重登，实际 %+v", account.Sources[0])
+	}
+}
+
+func TestWorkBuddyCheckinBalanceNetworkFailureStaysRetryable(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, claimUnauthorized: true, balanceNetworkFail: true,
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, acct, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("网络失败应由状态机记录: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.FailedRetryable {
+		t.Errorf("余额网络失败应可重试，实际 %+v", got)
+	}
+	account, err := acct.Get(context.Background(), "workbuddy-cn", accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Sources[0].Health != accounts.HealthHealthy {
+		t.Errorf("网络失败不得误标需重登或兜底，实际 %+v", account.Sources[0])
+	}
+}
+
+func TestWorkBuddyManualFallbackSuppressesSameDayClaim(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	for i := 0; i < 2; i++ {
+		obs, err := a.CallTool(context.Background(), "checkin_run",
+			rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+		if err != nil {
+			t.Fatalf("第 %d 次执行失败: %v", i+1, err)
+		}
+		got := obs.(engine.Observation)
+		if i == 1 {
+			if got.State != engine.ManualRequired {
+				t.Errorf("兜底后同日不得再次发送领取，实际 %+v", got)
+			}
+		}
+	}
+	if target.claims != 2 {
+		t.Errorf("首次领取 401 后只可刷新重试一次，后续不得再领取，实际 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReviewFindsClaimedToday(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if _, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The user completes check-in in WorkBuddy; QKA must only observe it.
+	target.mu.Lock()
+	target.checked = true
+	target.mu.Unlock()
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("复查失败: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if !got.Executed || got.State != engine.Already ||
+		!strings.Contains(got.Message, "只读复查观察到今日已领取（HTTP 200）") {
+		t.Errorf("复查到今日已领取应更新结果，实际 %+v", got)
+	}
+	var logMessage string
+	if err := a.store.DB().QueryRowContext(context.Background(),
+		`SELECT message FROM logs WHERE account_id = ? AND state = 'already'`,
+		accountID).Scan(&logMessage); err != nil {
+		t.Fatal(err)
+	}
+	if logMessage != got.Message {
+		t.Errorf("复查证据应写入日志，实际 %q", logMessage)
+	}
+	if target.claims != 2 {
+		t.Errorf("复查不得发送新的领取请求，实际领取总数 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReviewWithoutClaimKeepsFallback(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	for i := 0; i < 2; i++ {
+		obs, err := a.CallTool(context.Background(), "checkin_run",
+			rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			got := obs.(engine.Observation)
+			if got.State != engine.ManualRequired ||
+				!strings.Contains(got.Message, "请回 WorkBuddy App 签到") {
+				t.Errorf("复查未领取时应保留兜底提示，实际 %+v", got)
+			}
+		}
+	}
+	if target.claims != 2 {
+		t.Errorf("复查不得再次领取，实际领取总数 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReview401RequiresReauth(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, acct, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if _, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	target.mu.Lock()
+	target.statusUnauthorized = true
+	target.balanceUnauthorized = true
+	target.mu.Unlock()
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("复查登录失效应由状态机记录: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.FailedRetryable {
+		t.Errorf("复查登录失效应可重登后重试，实际 %+v", got)
+	}
+	account, err := acct.Get(context.Background(), "workbuddy-cn", accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Sources[0].Health != accounts.HealthReauthRequired {
+		t.Errorf("复查 401 应标记需重登，实际 %+v", account.Sources[0])
+	}
+	var dailyState string
+	if err := a.store.DB().QueryRowContext(context.Background(),
+		`SELECT state FROM daily_ops WHERE account_id = ? AND operation = 'checkin'`,
+		accountID).Scan(&dailyState); err != nil {
+		t.Fatal(err)
+	}
+	if dailyState != string(engine.ManualRequired) {
+		t.Errorf("复查需重登时不得解除当日领取抑制，实际 %q", dailyState)
+	}
+	if target.claims != 2 {
+		t.Errorf("复查 401 不得发送领取请求，实际领取总数 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReview401WithWorkingBalanceKeepsFallback(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, acct, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if _, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	target.mu.Lock()
+	target.statusUnauthorized = true
+	target.mu.Unlock()
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("余额可用时复查 401 不应中止: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.ManualRequired ||
+		!strings.Contains(got.Message, "余额查询仍可用") {
+		t.Errorf("余额可用时应保留应用内签到兜底，实际 %+v", got)
+	}
+	account, err := acct.Get(context.Background(), "workbuddy-cn", accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Sources[0].Health != accounts.HealthHealthy {
+		t.Errorf("余额可用时不得标记需重登，实际 %+v", account.Sources[0])
+	}
+	if target.claims != 2 {
+		t.Errorf("复查不得发送领取请求，实际领取总数 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReviewDoesNotSwallowCancellation(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if _, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.CallTool(ctx, "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("复查不得吞掉取消错误，实际 %v", err)
+	}
+}
+
+func TestWorkBuddyManualFallbackReviewInactiveDoesNotAskForAppCheckin(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if _, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	target.mu.Lock()
+	target.active = false
+	target.mu.Unlock()
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := obs.(engine.Observation)
+	if strings.Contains(got.Message, "请回 WorkBuddy App 签到") ||
+		!strings.Contains(got.Message, "活动未开始或已结束") {
+		t.Errorf("活动结束时不得要求回 App 签到，实际 %+v", got)
+	}
+	if target.claims != 2 {
+		t.Errorf("复查不得发送领取请求，实际领取总数 %d", target.claims)
+	}
+}
+
+func TestWorkBuddyManualFallbackReconcilesFromRunAll(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, claimUnauthorized: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, _ := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if err := a.RunAll(context.Background()); err != nil {
+		t.Fatalf("手动执行失败: %v", err)
+	}
+	var state string
+	_ = a.store.DB().QueryRowContext(context.Background(),
+		`SELECT state FROM daily_ops WHERE account_id = 'wb_one'`).Scan(&state)
+	if state != string(engine.ManualRequired) {
+		t.Fatalf("手动执行应写入 manual_required，实际 %q", state)
+	}
+
+	target.mu.Lock()
+	target.checked = true
+	target.mu.Unlock()
+	if err := a.RunAll(context.Background()); err != nil {
+		t.Fatalf("复查失败: %v", err)
+	}
+	_ = a.store.DB().QueryRowContext(context.Background(),
+		`SELECT state FROM daily_ops WHERE account_id = 'wb_one'`).Scan(&state)
+	if state != string(engine.Already) {
+		t.Errorf("RunAll 复查已领取后应更新状态，实际 %q", state)
+	}
+	if target.claims != 2 {
+		t.Errorf("RunAll 不得再次领取，实际领取总数 %d", target.claims)
 	}
 }

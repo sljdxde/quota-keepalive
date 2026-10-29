@@ -58,7 +58,8 @@ func TestKeepaliveTransitions(t *testing.T) {
 }
 
 func TestTerminalStatesSuppressReexecution(t *testing.T) {
-	terminal := []State{SignedProvisional, SignedConfirmed, Already, Ineligible, Inactive, Completed}
+	terminal := []State{SignedProvisional, SignedConfirmed, Already, Ineligible, Inactive,
+		ManualRequired, Completed}
 	for _, s := range terminal {
 		if !s.IsTerminal() {
 			t.Errorf("%s 应抑制同日再次执行", s)
@@ -69,5 +70,14 @@ func TestTerminalStatesSuppressReexecution(t *testing.T) {
 		if s.IsTerminal() {
 			t.Errorf("%s 不应是终态", s)
 		}
+	}
+}
+
+func TestCheckinManualRequiredIsTerminal(t *testing.T) {
+	if got := Transition(Checkin, RManualRequired, afternoon()); got != ManualRequired {
+		t.Errorf("应用内签到兜底应映射 manual_required，实际 %s", got)
+	}
+	if !ManualRequired.IsTerminal() {
+		t.Error("应用内签到兜底必须抑制同日再次领取")
 	}
 }

@@ -4,10 +4,12 @@ package status
 
 // OpStatus 是单账号×操作的今日状态。
 type OpStatus struct {
-	Target    string `json:"target"`
-	AccountID string `json:"account_id"`
-	Operation string `json:"operation"`
-	State     string `json:"state"`
+	Target     string `json:"target"`
+	AccountID  string `json:"account_id"`
+	Operation  string `json:"operation"`
+	State      string `json:"state"`
+	Message    string `json:"message,omitempty"`
+	NextAction string `json:"next_action,omitempty"`
 }
 
 // AccountStatus 是单账号的状态视图。
@@ -15,6 +17,7 @@ type AccountStatus struct {
 	Target         string     `json:"target"`
 	AccountID      string     `json:"account_id"`
 	DisplayName    string     `json:"display_name"`
+	MaskedIdentity string     `json:"masked_identity"`
 	Enabled        bool       `json:"enabled"`
 	SourceHealth   string     `json:"source_health"`
 	Operations     []OpStatus `json:"operations"`

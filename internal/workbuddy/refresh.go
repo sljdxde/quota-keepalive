@@ -81,6 +81,28 @@ func NewManagedSession(cfg ManagedSessionConfig) *ManagedSession {
 // before sending, and retries a request that receives 401 at most once after
 // refreshing that source.
 func (s *ManagedSession) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return s.do(ctx, req, true)
+}
+
+// DoAllowUnauthorized keeps the normal expiring-token refresh and single 401
+// retry, but returns the final 401 response instead of marking the whole
+// source as reauthenticated. Callers that receive this response must use a
+// separate read-only request to decide whether the login itself is invalid.
+func (s *ManagedSession) DoAllowUnauthorized(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return s.do(ctx, req, false)
+}
+
+// MarkReauthRequired records that a separate read-only probe proved the
+// managed source's login is invalid.
+func (s *ManagedSession) MarkReauthRequired(ctx context.Context) error {
+	return s.reauth(ctx, "只读探测返回未授权")
+}
+
+func (s *ManagedSession) do(
+	ctx context.Context,
+	req *http.Request,
+	markFinal401Reauth bool,
+) (*http.Response, error) {
 	if req == nil {
 		return nil, errors.New("WorkBuddy 请求不能为空")
 	}
@@ -113,6 +135,9 @@ func (s *ManagedSession) Do(ctx context.Context, req *http.Request) (*http.Respo
 		return nil, err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
+		if !markFinal401Reauth {
+			return resp, nil
+		}
 		discardAndClose(resp.Body)
 		return nil, s.reauth(ctx, "刷新后的请求仍返回 401")
 	}

@@ -21,6 +21,7 @@ const (
 	Already           State = "already"
 	Ineligible        State = "ineligible"
 	Inactive          State = "inactive"
+	ManualRequired    State = "manual_required"
 	None              State = "none"
 	FailedRetryable   State = "failed_retryable"
 	FailedFinal       State = "failed_final"
@@ -30,7 +31,8 @@ const (
 // IsTerminal 报告是否为抑制同日再次执行的终态。
 func (s State) IsTerminal() bool {
 	switch s {
-	case SignedProvisional, SignedConfirmed, Already, Ineligible, Inactive, Completed:
+	case SignedProvisional, SignedConfirmed, Already, Ineligible, Inactive,
+		ManualRequired, Completed:
 		return true
 	}
 	return false
@@ -40,13 +42,14 @@ func (s State) IsTerminal() bool {
 type ResultKind string
 
 const (
-	RSuccess    ResultKind = "success"
-	RAlready    ResultKind = "already"
-	RIneligible ResultKind = "ineligible"
-	RInactive   ResultKind = "inactive"
-	RNone       ResultKind = "none"
-	RRetryable  ResultKind = "retryable"
-	RFinal      ResultKind = "final"
+	RSuccess        ResultKind = "success"
+	RAlready        ResultKind = "already"
+	RIneligible     ResultKind = "ineligible"
+	RInactive       ResultKind = "inactive"
+	RManualRequired ResultKind = "manual_required"
+	RNone           ResultKind = "none"
+	RRetryable      ResultKind = "retryable"
+	RFinal          ResultKind = "final"
 )
 
 // ExternalResult 是一次目标侧动作的结果。
@@ -72,6 +75,8 @@ func Transition(op Operation, kind ResultKind, now time.Time) State {
 			return Ineligible
 		case RInactive:
 			return Inactive
+		case RManualRequired:
+			return ManualRequired
 		case RNone:
 			return None
 		case RRetryable:

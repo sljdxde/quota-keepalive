@@ -363,6 +363,61 @@ func TestManagedSessionSecond401MarksReauthWithoutThirdAttempt(t *testing.T) {
 	}
 }
 
+func TestManagedSessionAllowUnauthorizedExposesFinal401WithoutMarkingReauth(t *testing.T) {
+	const (
+		oldAccess  = "access-endpoint-401"
+		oldRefresh = "refresh-endpoint-401"
+		newAccess  = "access-endpoint-401-renewed"
+		uid        = "uid-endpoint-401"
+		domain     = "copilot.tencent.com"
+	)
+	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	store := newManagedCredentialStore(PendingCredential{
+		Target: "workbuddy-cn", AccessToken: oldAccess, RefreshToken: oldRefresh,
+		AccessExpiresAt: now.Add(time.Hour).UnixMilli(), Domain: domain, UID: uid,
+	})
+
+	var refreshCalls, requestCalls int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/plugin/auth/token/refresh":
+			refreshCalls++
+			writeEnvelope(t, w, map[string]any{
+				"accessToken": newAccess, "refreshToken": "{{SECRET_m9q4z8wa}}", "expiresIn": 3600,
+			})
+		case "/v2/billing/meter/daily-checkin":
+			requestCalls++
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	session := NewManagedSession(ManagedSessionConfig{
+		BaseURL: target.URL, Store: store, Now: func() time.Time { return now },
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		target.URL+"/v2/billing/meter/daily-checkin", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := session.DoAllowUnauthorized(context.Background(), req)
+	if err != nil {
+		t.Fatalf("允许暴露 401 的请求不应变成错误: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("应把刷新重试后的原始 401 交给调用方，实际 HTTP %d", resp.StatusCode)
+	}
+	if refreshCalls != 1 || requestCalls != 2 {
+		t.Errorf("仍应刷新一次并重试一次，refresh=%d request=%d", refreshCalls, requestCalls)
+	}
+	if store.reauth != 0 {
+		t.Errorf("单个接口 401 不得直接标记登录态失效，实际 reauth=%d", store.reauth)
+	}
+}
+
 func TestManagedSessionRetryableRefreshFailureLeavesHealthUnchanged(t *testing.T) {
 	for _, status := range []int{
 		http.StatusRequestTimeout,

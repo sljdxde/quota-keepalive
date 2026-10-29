@@ -21,6 +21,7 @@ func (a *App) RunAll(ctx context.Context) error {
 	var failures []error
 	for _, item := range plan.Items {
 		// 预演标注 no_change（冲突/冷却/已终态）的项跳过，不重复发起。
+		// review 只允许 manual_required 的只读复查，不能触发新的领取。
 		if item.Transition == "no_change" {
 			continue
 		}

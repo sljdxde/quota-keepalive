@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"qka/internal/accounts"
 	"qka/internal/capabilities"
@@ -34,6 +35,13 @@ func (a *App) runWorkBuddyCheckin(ctx context.Context, accountID string) (any, e
 		Target: "workbuddy-cn", AccountID: accountID,
 		Operation: engine.Checkin,
 	}
+	state, err := a.engine.CurrentState(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if state == engine.ManualRequired {
+		return a.reviewWorkBuddyFallback(ctx, accountID, preferred, key)
+	}
 	var outcome workbuddy.CheckinResult
 	exec := func(ctx context.Context, _ engine.Key) (engine.ExternalResult, error) {
 		session, err := a.newWorkBuddyManagedSession(ctx, accountID, preferred.ID)
@@ -51,6 +59,8 @@ func (a *App) runWorkBuddyCheckin(ctx context.Context, accountID string) (any, e
 		switch result.Outcome {
 		case workbuddy.CheckinDone:
 			return engine.ExternalResult{Kind: engine.RAlready, Message: result.Message}, nil
+		case workbuddy.CheckinManualRequired:
+			return engine.ExternalResult{Kind: engine.RManualRequired, Message: result.Message}, nil
 		case workbuddy.CheckinIneligible:
 			return engine.ExternalResult{Kind: engine.RIneligible, Message: result.Message}, nil
 		case workbuddy.CheckinInactive:
@@ -93,6 +103,110 @@ func (a *App) runWorkBuddyCheckin(ctx context.Context, accountID string) (any, e
 		}
 		obs.Message = "已到账"
 	}
+	return obs, nil
+}
+
+// reviewWorkBuddyFallback is the same-day read-only path after the user has
+// been sent to the official WorkBuddy app. It never calls daily-checkin.
+func (a *App) reviewWorkBuddyFallback(
+	ctx context.Context,
+	accountID string,
+	preferred accounts.Source,
+	key engine.Key,
+) (any, error) {
+	session, err := a.newWorkBuddyManagedSession(ctx, accountID, preferred.ID)
+	if err != nil {
+		return nil, err
+	}
+	review, err := workbuddy.NewCheckinService(workbuddy.CheckinConfig{
+		Session: session,
+		BaseURL: workBuddyLoginBaseURL(a.cfg.BaseURLs),
+	}).Review(ctx)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		if errors.Is(err, workbuddy.ErrManagedReauthRequired) {
+			obs := engine.Observation{
+				Target: key.Target, AccountID: accountID, Operation: key.Operation,
+				Day: engine.BeijingDay(a.now()), State: engine.FailedRetryable,
+				Executed: true, Message: "登录态已失效，请重新登录后再复查",
+			}
+			a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
+			return obs, nil
+		}
+		// A failed review cannot prove the user's result either way. Keep the
+		// fallback state and make the retry visible without another claim.
+		obs := engine.Observation{
+			Target: key.Target, AccountID: accountID, Operation: key.Operation,
+			Day: engine.BeijingDay(a.now()), State: engine.ManualRequired,
+			Executed: true, Message: "复查暂不可用；请回 WorkBuddy App 签到后重试",
+		}
+		a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
+		return obs, nil
+	}
+	if review.CheckedIn {
+		message := fmt.Sprintf(
+			"只读复查观察到今日已领取（HTTP %d）", review.StatusCode)
+		updated, err := a.engine.ReconcileStateIfCurrent(
+			ctx, key, engine.ManualRequired, engine.Already, message)
+		if err != nil {
+			return nil, err
+		}
+		if !updated {
+			state, err := a.engine.CurrentState(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+			if state != engine.Already {
+				return engine.Observation{
+					Target: key.Target, AccountID: accountID, Operation: key.Operation,
+					Day: engine.BeijingDay(a.now()), State: state, Executed: true,
+					Message: "复查期间状态已变化；未更新结果",
+				}, nil
+			}
+		}
+		obs := engine.Observation{
+			Target: key.Target, AccountID: accountID, Operation: key.Operation,
+			Day: engine.BeijingDay(a.now()), State: engine.Already,
+			Executed: true, Message: message,
+		}
+		a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
+		return obs, nil
+	}
+	if review.StatusCode == http.StatusUnauthorized {
+		obs := engine.Observation{
+			Target: key.Target, AccountID: accountID, Operation: key.Operation,
+			Day: engine.BeijingDay(a.now()), State: engine.ManualRequired,
+			Executed: true,
+			Message: fmt.Sprintf(
+				"复查请求被拒绝（HTTP %d），但余额查询仍可用；请回 WorkBuddy App 签到，完成后再次执行 checkin_run 复查",
+				review.StatusCode),
+		}
+		a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
+		return obs, nil
+	}
+	if !review.Active {
+		obs := engine.Observation{
+			Target: key.Target, AccountID: accountID, Operation: key.Operation,
+			Day: engine.BeijingDay(a.now()), State: engine.ManualRequired,
+			Executed: true,
+			Message: fmt.Sprintf(
+				"复查显示活动未开始或已结束（HTTP %d）；今日无需再次领取",
+				review.StatusCode),
+		}
+		a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
+		return obs, nil
+	}
+	obs := engine.Observation{
+		Target: key.Target, AccountID: accountID, Operation: key.Operation,
+		Day: engine.BeijingDay(a.now()), State: engine.ManualRequired,
+		Executed: true,
+		Message: fmt.Sprintf(
+			"尚未观察到今日签到（HTTP %d）；请回 WorkBuddy App 签到，完成后再次执行 checkin_run 复查",
+			review.StatusCode),
+	}
+	a.writeWorkBuddyCheckinLog(ctx, accountID, obs)
 	return obs, nil
 }
 

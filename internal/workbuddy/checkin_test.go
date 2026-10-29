@@ -3,6 +3,7 @@ package workbuddy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,16 +13,20 @@ import (
 )
 
 type fakeCheckinTarget struct {
-	mu           sync.Mutex
-	active       bool
-	checked      bool
-	statusCode   int
-	claimCode    int
-	claimCredit  float64
-	claimMsg     string
-	claimDelayed bool
-	statuses     int
-	claims       int
+	mu                 sync.Mutex
+	active             bool
+	checked            bool
+	statusCode         int
+	claimStatusCode    int
+	claimCode          int
+	claimCredit        float64
+	claimMsg           string
+	claimDelayed       bool
+	balanceStatusCode  int
+	balanceNetworkFail bool
+	statuses           int
+	claims             int
+	balances           int
 }
 
 func (f *fakeCheckinTarget) serve(t *testing.T) *httptest.Server {
@@ -30,33 +35,41 @@ func (f *fakeCheckinTarget) serve(t *testing.T) *httptest.Server {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 
-		if r.Header.Get("Authorization") != "Bearer access-for-checkin" {
-			t.Errorf("Authorization 头错误: %q", r.Header.Get("Authorization"))
-		}
-		if r.Header.Get("X-Domain") != "copilot.tencent.com" {
-			t.Errorf("X-Domain 头错误: %q", r.Header.Get("X-Domain"))
-		}
-		if r.Header.Get("X-User-Id") != "uid-for-checkin" {
-			t.Errorf("X-User-Id 头错误: %q", r.Header.Get("X-User-Id"))
-		}
-		if r.Header.Get("X-Product") != "SaaS" {
-			t.Errorf("X-Product 头错误: %q", r.Header.Get("X-Product"))
-		}
-		if r.Header.Get("X-IDE-Type") != "WorkBuddy" {
-			t.Errorf("X-IDE-Type 头错误: %q", r.Header.Get("X-IDE-Type"))
-		}
-		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "WorkBuddy/") {
-			t.Errorf("User-Agent 头错误: %q", got)
-		}
-		if r.Method != http.MethodPost {
-			t.Errorf("签到接口应使用 POST，实际 %s", r.Method)
-		}
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body) != 0 {
-			t.Errorf("签到请求体应为空对象，实际 %v err=%v", body, err)
+		if r.URL.Path != "/v2/plugin/auth/token/refresh" {
+			if r.Header.Get("Authorization") != "Bearer access-for-checkin" {
+				t.Errorf("Authorization 头错误: %q", r.Header.Get("Authorization"))
+			}
+			if r.Header.Get("X-Domain") != "copilot.tencent.com" {
+				t.Errorf("X-Domain 头错误: %q", r.Header.Get("X-Domain"))
+			}
+			if r.Header.Get("X-User-Id") != "uid-for-checkin" {
+				t.Errorf("X-User-Id 头错误: %q", r.Header.Get("X-User-Id"))
+			}
+			if r.Header.Get("X-Product") != "SaaS" {
+				t.Errorf("X-Product 头错误: %q", r.Header.Get("X-Product"))
+			}
+			if r.Header.Get("X-IDE-Type") != "WorkBuddy" {
+				t.Errorf("X-IDE-Type 头错误: %q", r.Header.Get("X-IDE-Type"))
+			}
+			if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "WorkBuddy/") {
+				t.Errorf("User-Agent 头错误: %q", got)
+			}
+			if r.Method != http.MethodPost {
+				t.Errorf("签到接口应使用 POST，实际 %s", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body) != 0 {
+				t.Errorf("签到请求体应为空对象，实际 %v err=%v", body, err)
+			}
 		}
 
 		switch r.URL.Path {
+		case "/v2/plugin/auth/token/refresh":
+			writeEnvelope(t, w, map[string]any{
+				"accessToken":  "access-for-checkin",
+				"refreshToken": "refresh-for-checkin",
+				"expiresIn":    3600,
+			})
 		case "/v2/billing/meter/checkin-activity-status":
 			f.statuses++
 			if f.statusCode != 0 {
@@ -73,6 +86,10 @@ func (f *fakeCheckinTarget) serve(t *testing.T) *httptest.Server {
 			})
 		case "/v2/billing/meter/daily-checkin":
 			f.claims++
+			if f.claimStatusCode != 0 {
+				w.WriteHeader(f.claimStatusCode)
+				return
+			}
 			if f.claimCode != 0 {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]any{
@@ -89,6 +106,24 @@ func (f *fakeCheckinTarget) serve(t *testing.T) *httptest.Server {
 				"credit_delayed": f.claimDelayed,
 				"message":        f.claimMsg,
 			})
+		case "/billing/meter/get-user-resource-summary":
+			f.balances++
+			if f.balanceNetworkFail {
+				if hijacker, ok := w.(http.Hijacker); ok {
+					conn, _, err := hijacker.Hijack()
+					if err == nil {
+						_ = conn.Close()
+						return
+					}
+				}
+				http.Error(w, "network failure", http.StatusInternalServerError)
+				return
+			}
+			if f.balanceStatusCode != 0 {
+				w.WriteHeader(f.balanceStatusCode)
+				return
+			}
+			writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
 		default:
 			t.Errorf("签到出现未预期请求: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -224,5 +259,135 @@ func TestCheckinMapsBusinessRefusals(t *testing.T) {
 				t.Errorf("应恰好尝试领取一次，实际 %d", target.claims)
 			}
 		})
+	}
+}
+
+func TestCheckinStatus401WithSuccessfulBalanceRequiresOwnApp(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{active: true, statusCode: http.StatusUnauthorized}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	result, err := svc.Checkin(context.Background())
+	if err != nil {
+		t.Fatalf("签到状态 401 但余额可用时不应成为传输错误: %v", err)
+	}
+	if result.Outcome != CheckinManualRequired {
+		t.Errorf("应进入应用内签到兜底，实际 %+v", result)
+	}
+	if !strings.Contains(result.Message, "请回 WorkBuddy App 签到") {
+		t.Errorf("兜底结果必须给出应用内签到下一步，实际 %q", result.Message)
+	}
+	if target.claims != 0 {
+		t.Errorf("状态查询 401 后不得发送领取请求，实际 %d 次", target.claims)
+	}
+	if target.balances != 1 {
+		t.Errorf("应以同一受管凭据只读查询余额一次，实际 %d 次", target.balances)
+	}
+}
+
+func TestCheckinClaim401WithSuccessfulBalanceRequiresOwnApp(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{
+		active: true, claimStatusCode: http.StatusUnauthorized,
+	}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	result, err := svc.Checkin(context.Background())
+	if err != nil {
+		t.Fatalf("领取 401 但余额可用时不应成为传输错误: %v", err)
+	}
+	if result.Outcome != CheckinManualRequired {
+		t.Errorf("应进入应用内签到兜底，实际 %+v", result)
+	}
+	if !strings.Contains(result.Message, "请回 WorkBuddy App 签到") {
+		t.Errorf("兜底结果必须给出应用内签到下一步，实际 %q", result.Message)
+	}
+	if target.claims != 2 {
+		t.Errorf("领取 401 后应只刷新并重试一次，实际领取请求 %d 次", target.claims)
+	}
+	if target.balances != 1 {
+		t.Errorf("应以同一受管凭据只读查询余额一次，实际 %d 次", target.balances)
+	}
+}
+
+func TestCheckinBalance401RequiresReauth(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{
+		active: true, claimStatusCode: http.StatusUnauthorized,
+		balanceStatusCode: http.StatusUnauthorized,
+	}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	_, err := svc.Checkin(context.Background())
+	if !errors.Is(err, ErrManagedReauthRequired) {
+		t.Fatalf("余额查询也 401 时应要求重新登录，实际 %v", err)
+	}
+}
+
+func TestCheckinBalance403RequiresReauth(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{
+		active: true, claimStatusCode: http.StatusUnauthorized,
+		balanceStatusCode: http.StatusForbidden,
+	}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	_, err := svc.Checkin(context.Background())
+	if !errors.Is(err, ErrManagedReauthRequired) {
+		t.Fatalf("余额查询 403 时应要求重新登录，实际 %v", err)
+	}
+}
+
+func TestCheckinBalanceNetworkFailureStaysRetryable(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{
+		active: true, claimStatusCode: http.StatusUnauthorized,
+		balanceNetworkFail: true,
+	}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	_, err := svc.Checkin(context.Background())
+	if !errors.Is(err, ErrManagedRetryable) {
+		t.Fatalf("余额网络失败应可重试，实际 %v", err)
+	}
+	if errors.Is(err, ErrManagedReauthRequired) {
+		t.Fatal("余额网络失败不得要求重新登录")
+	}
+}
+
+func TestCheckinReviewOnlyQueriesStatusAndReportsCheckedIn(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{active: true, checked: true}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	review, err := svc.Review(context.Background())
+	if err != nil {
+		t.Fatalf("复查失败: %v", err)
+	}
+	if !review.CheckedIn || review.StatusCode != http.StatusOK {
+		t.Errorf("复查应观察到今日已领取，实际 %+v", review)
+	}
+	if target.claims != 0 {
+		t.Errorf("复查不得发送领取请求，实际 %d 次", target.claims)
+	}
+}
+
+func TestCheckinReview401WithWorkingBalanceStaysFallback(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+	target := &fakeCheckinTarget{active: true, statusCode: http.StatusUnauthorized}
+	svc, _ := newCheckinTestService(t, target, now)
+
+	review, err := svc.Review(context.Background())
+	if err != nil {
+		t.Fatalf("余额可用时复查 401 不应中止: %v", err)
+	}
+	if review.CheckedIn || review.StatusCode != http.StatusUnauthorized {
+		t.Errorf("复查应保留未领取与 401 观察，实际 %+v", review)
+	}
+	if target.balances != 1 {
+		t.Errorf("复查 401 应只读查询余额一次，实际 %d", target.balances)
+	}
+	if target.claims != 0 {
+		t.Errorf("复查不得发送领取请求，实际 %d 次", target.claims)
 	}
 }

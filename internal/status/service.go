@@ -27,15 +27,17 @@ func NewService(db *sql.DB, now func() time.Time, caps CapabilitiesFunc) *Servic
 }
 
 type accountRow struct {
-	target      string
-	id          string
-	displayName string
-	enabled     int
+	target         string
+	id             string
+	displayName    string
+	maskedIdentity string
+	enabled        int
 }
 
 func (s *Service) accounts(ctx context.Context) ([]accountRow, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT target, id, display_name, enabled FROM accounts ORDER BY target, id`)
+		`SELECT target, id, display_name, masked_identity, enabled
+		 FROM accounts ORDER BY target, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +46,8 @@ func (s *Service) accounts(ctx context.Context) ([]accountRow, error) {
 	var out []accountRow
 	for rows.Next() {
 		var a accountRow
-		if err := rows.Scan(&a.target, &a.id, &a.displayName, &a.enabled); err != nil {
+		if err := rows.Scan(&a.target, &a.id, &a.displayName,
+			&a.maskedIdentity, &a.enabled); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -52,45 +55,88 @@ func (s *Service) accounts(ctx context.Context) ([]accountRow, error) {
 	return out, rows.Err()
 }
 
-// healthRank 给健康状态排序（数字越小越好）。
-func healthRank(h string) int {
-	switch h {
-	case "healthy":
-		return 0
-	case "reauth_required":
-		return 1
-	default:
-		return 2
-	}
+type sourceAvailability struct {
+	health     string
+	reviewable bool
 }
 
-// bestHealth 返回账号最优先来源的健康状态（pinned 优先，其次健康度）。
-func (s *Service) bestHealth(ctx context.Context, target, account string) (string, error) {
+// preferredSource mirrors accounts.PreferredSource: healthy pinned source,
+// then healthy managed, then healthy imported. reviewable is true only when
+// that selected source is managed and not read-only.
+func (s *Service) preferredSource(
+	ctx context.Context,
+	target, account string,
+) (sourceAvailability, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT health, pinned, kind FROM sources WHERE target = ? AND account_id = ?`,
+		`SELECT health, pinned, kind, read_only
+		 FROM sources WHERE target = ? AND account_id = ? ORDER BY id`,
 		target, account)
 	if err != nil {
-		return "", err
+		return sourceAvailability{}, err
 	}
 	defer rows.Close()
 
-	best := "disabled"
-	bestRank := 3
-	var bestPinned int
+	type sourceRow struct {
+		health   string
+		pinned   bool
+		managed  bool
+		readOnly bool
+	}
+	var sources []sourceRow
+	hasReauth := false
 	for rows.Next() {
 		var health string
 		var pinned int
 		var kind string
-		if err := rows.Scan(&health, &pinned, &kind); err != nil {
-			return "", err
+		var readOnly int
+		if err := rows.Scan(&health, &pinned, &kind, &readOnly); err != nil {
+			return sourceAvailability{}, err
 		}
-		rank := healthRank(health)
-		// pinned 来源在同等健康度下优先。
-		if pinned > bestPinned || (pinned == bestPinned && rank < bestRank) {
-			best, bestRank, bestPinned = health, rank, pinned
+		if health == "reauth_required" {
+			hasReauth = true
+		}
+		sources = append(sources, sourceRow{
+			health: health, pinned: pinned == 1, managed: kind == "managed",
+			readOnly: readOnly == 1,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return sourceAvailability{}, err
+	}
+
+	selected := -1
+	for i, source := range sources {
+		if source.pinned && source.health == "healthy" {
+			selected = i
+			break
 		}
 	}
-	return best, rows.Err()
+	if selected < 0 {
+		for i, source := range sources {
+			if !source.pinned && source.health == "healthy" && source.managed {
+				selected = i
+				break
+			}
+		}
+	}
+	if selected < 0 {
+		for i, source := range sources {
+			if !source.pinned && source.health == "healthy" && !source.managed {
+				selected = i
+				break
+			}
+		}
+	}
+	if selected >= 0 {
+		source := sources[selected]
+		return sourceAvailability{
+			health: "healthy", reviewable: source.managed && !source.readOnly,
+		}, nil
+	}
+	if hasReauth {
+		return sourceAvailability{health: "reauth_required"}, nil
+	}
+	return sourceAvailability{health: "disabled"}, nil
 }
 
 // Status 汇总当前状态（只读，不含计划字段）。
@@ -107,11 +153,19 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 			continue
 		}
 		as := AccountStatus{
-			Target: a.target, AccountID: a.id, DisplayName: a.displayName, Enabled: true,
+			Target: a.target, AccountID: a.id, DisplayName: a.displayName,
+			MaskedIdentity: a.maskedIdentity, Enabled: true,
 		}
 
+		source, err := s.preferredSource(ctx, a.target, a.id)
+		if err != nil {
+			return View{}, err
+		}
+		as.SourceHealth = source.health
+
 		rows, err := s.db.QueryContext(ctx,
-			`SELECT operation, state FROM daily_ops WHERE target = ? AND account_id = ? AND day_key = ?`,
+			`SELECT operation, state FROM daily_ops
+			 WHERE target = ? AND account_id = ? AND day_key = ?`,
 			a.target, a.id, day)
 		if err != nil {
 			return View{}, err
@@ -122,20 +176,31 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 				rows.Close()
 				return View{}, err
 			}
-			as.Operations = append(as.Operations, OpStatus{
+			opStatus := OpStatus{
 				Target: a.target, AccountID: a.id, Operation: op, State: state,
-			})
+			}
 			if state == "signed_provisional" {
 				as.PendingReasons = append(as.PendingReasons, "已领取，待复核")
 			}
+			if state == "manual_required" {
+				opStatus.Message = "自动签到被 WorkBuddy 拒绝"
+				switch source.health {
+				case "reauth_required":
+					opStatus.Message += "；来源登录态已失效"
+					opStatus.NextAction = "请重新登录 WorkBuddy CN 后再执行 checkin_run 复查"
+					as.PendingReasons = append(as.PendingReasons, "来源需重新登录")
+				case "disabled":
+					opStatus.Message += "；没有可用来源"
+					opStatus.NextAction = "请检查账号来源或重新登录 WorkBuddy CN"
+					as.PendingReasons = append(as.PendingReasons, "没有可用来源")
+				default:
+					opStatus.NextAction = "请回 WorkBuddy App 签到，完成后再次执行 checkin_run 复查"
+					as.PendingReasons = append(as.PendingReasons, "需回 WorkBuddy App 签到")
+				}
+			}
+			as.Operations = append(as.Operations, opStatus)
 		}
 		rows.Close()
-
-		health, err := s.bestHealth(ctx, a.target, a.id)
-		if err != nil {
-			return View{}, err
-		}
-		as.SourceHealth = health
 
 		view.Enabled = true
 		view.Accounts = append(view.Accounts, as)
@@ -165,7 +230,10 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 		if a.enabled != 1 {
 			continue
 		}
-		health, _ := s.bestHealth(ctx, a.target, a.id)
+		source, err := s.preferredSource(ctx, a.target, a.id)
+		if err != nil {
+			return Plan{}, err
+		}
 
 		for _, op := range s.caps(a.target) {
 			item := PlanItem{Target: a.target, AccountID: a.id, Operation: op, CostHint: costHint(op)}
@@ -179,7 +247,14 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 				return Plan{}, err
 			}
 
+			manualReview := false
 			switch state {
+			case "manual_required":
+				if a.target == "workbuddy-cn" && op == "checkin" {
+					manualReview = true
+				} else {
+					item.Conflicts = append(item.Conflicts, "同日已终态")
+				}
 			case "signed_confirmed", "signed_provisional", "completed",
 				"already", "ineligible", "inactive":
 				item.Conflicts = append(item.Conflicts, "同日已终态")
@@ -189,13 +264,23 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 				}
 			}
 
-			switch health {
+			switch source.health {
 			case "reauth_required":
 				item.Conflicts = append(item.Conflicts, "来源失效，需重登")
 			case "disabled":
 				item.Conflicts = append(item.Conflicts, "无可用来源")
 			}
 
+			if manualReview {
+				if !source.reviewable && len(item.Conflicts) == 0 {
+					item.Conflicts = append(item.Conflicts, "复查需要健康受管来源")
+				}
+				if len(item.Conflicts) == 0 {
+					item.Transition = "review"
+					plan.Items = append(plan.Items, item)
+					continue
+				}
+			}
 			canRun := len(item.Conflicts) == 0 && !item.Cooldown
 			item.Transition = previewTransition(op, now, canRun)
 

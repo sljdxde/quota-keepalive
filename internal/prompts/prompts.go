@@ -104,7 +104,8 @@ func Render(name string, args map[string]string) ([]Message, error) {
 			"1. 运行 doctor_run 查看配对/凭据/端点；",
 			"2. 查看该账号最近日志（log_tail 按 target/account 筛选）；",
 			"3. 若为 reauth_required，用官方登录重新授权；",
-			"4. 若为平台不支持或重试失败，按修复指引处理后手动执行一次。",
+			"4. 若为 manual_required，回 WorkBuddy 官方 App 完成签到，再执行 checkin_run 只读复查；",
+			"5. 若为平台不支持或重试失败，按修复指引处理后手动执行一次。",
 		}, "\n")}}, nil
 
 	case "explain_today_results":
@@ -112,6 +113,7 @@ func Render(name string, args map[string]string) ([]Message, error) {
 			"今日结果说明：",
 			"- signed_confirmed：午后证据充分，已确认；",
 			"- signed_provisional：午前或证据不足，待午后复核；",
+			"- manual_required：自动签到被拒绝但登录仍可用，请回 WorkBuddy App 签到后复查；",
 			"- failed_retryable：可重试，受冷却约束；",
 			"- failed_final：终态失败，需人工处理；",
 			"- keepalive completed：WorkBuddy 今日真实对话已完成。",

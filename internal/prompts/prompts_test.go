@@ -53,3 +53,14 @@ func TestAddAccountNoPasswordCollection(t *testing.T) {
 		t.Error("官方登录引导应明确不收集密码/验证码")
 	}
 }
+
+func TestExplainTodayResultsIncludesOwnAppFallback(t *testing.T) {
+	msgs, err := Render("explain_today_results", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msgs[0].Content, "manual_required") ||
+		!strings.Contains(msgs[0].Content, "请回 WorkBuddy App 签到") {
+		t.Errorf("今日结果说明必须区分应用内签到兜底，实际 %s", msgs[0].Content)
+	}
+}

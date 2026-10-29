@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -114,6 +115,16 @@ WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`,
 	return State(s), err
 }
 
+// CurrentState returns today's state for one operation. A missing row is
+// reported as pending; it is not created by this read.
+func (e *Engine) CurrentState(ctx context.Context, key Key) (State, error) {
+	state, err := e.readState(ctx, key, BeijingDay(e.clock()))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Pending, nil
+	}
+	return state, err
+}
+
 // ReconcileState 在只读复核后显式修正当日状态（如证据不足时 confirmed→provisional）。
 func (e *Engine) ReconcileState(ctx context.Context, key Key, state State, message string) error {
 	day := BeijingDay(e.clock())
@@ -123,6 +134,32 @@ WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`,
 		string(state), message, formatTS(e.clock()),
 		key.Target, key.AccountID, string(key.Operation), day)
 	return err
+}
+
+// ReconcileStateIfCurrent applies a read-only review result only when the
+// expected state is still current. This prevents a concurrent review from
+// overwriting a state that changed after the observation began.
+func (e *Engine) ReconcileStateIfCurrent(
+	ctx context.Context,
+	key Key,
+	from, to State,
+	message string,
+) (bool, error) {
+	day := BeijingDay(e.clock())
+	res, err := e.db.ExecContext(ctx, `
+UPDATE daily_ops SET state = ?, message = ?, updated_at = ?
+WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?
+  AND state = ?`,
+		string(to), message, formatTS(e.clock()),
+		key.Target, key.AccountID, string(key.Operation), day, string(from))
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
 }
 
 // complete 写回新状态并释放租约；保活可重试失败时设置冷却。
