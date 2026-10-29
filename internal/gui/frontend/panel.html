@@ -22,7 +22,18 @@
   <div class="meta" id="lastInvocation"></div>
   <button id="run">立即执行</button>
 
-<script>
+<script type="module">
+  import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
+
+  const qka = {
+    status: async function () {
+      return JSON.parse(await Bound.Status());
+    },
+    run: function () {
+      return Bound.Run();
+    },
+  };
+
   function renderStatus(view) {
     const box = document.getElementById("accounts");
     box.innerHTML = "";
@@ -41,17 +52,13 @@
   }
 
   async function refresh() {
-    if (window.qka && window.qka.status) {
-      renderStatus(await window.qka.status());
-    }
+    renderStatus(await qka.status());
   }
 
   document.getElementById("run").onclick = async function () {
-    if (window.qka && window.qka.run) {
-      // 立即执行走同一服务链（内部先预演）。
-      await window.qka.run();
-      await refresh();
-    }
+    // 立即执行走同一服务链（Bound.Run 内部先预演）。
+    await qka.run();
+    await refresh();
   };
 
   refresh();

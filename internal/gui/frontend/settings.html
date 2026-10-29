@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; padding: 16px; width: 360px; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  label { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0;
+          border-top: 1px solid #eee; }
+  .desc { color: #888; font-size: 11px; margin-top: 2px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1e1e1e; color: #e6e6e6; }
+    label { border-top-color: #333; }
+    .desc { color: #999; }
+  }
+</style>
+</head>
+<body>
+  <h1>设置</h1>
+  <div id="form"></div>
+
+<script type="module">
+  import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
+
+  async function init() {
+    const schema = JSON.parse(await Bound.SettingsSchema());
+    const values = JSON.parse(await Bound.SettingsGet());
+    const form = document.getElementById("form");
+
+    // 表单完全由 schema 生成：新增开关只需在 schema 追加，无需改本文件。
+    schema.forEach(function (f) {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!values[f.key];
+      cb.onchange = function () {
+        Bound.SettingsSet(f.key, cb.checked);
+      };
+      const text = document.createElement("div");
+      text.textContent = f.label;
+      const desc = document.createElement("div");
+      desc.className = "desc";
+      desc.textContent = f.description;
+      text.appendChild(desc);
+      label.appendChild(cb);
+      label.appendChild(text);
+      form.appendChild(label);
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>
