@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// UserAgent 是 qka 统一出站 UA。
+	// UserAgent 是 QKA 的稳定技术标识，沿用兼容值 qka/1.0。
 	UserAgent = "qka/1.0"
 	// DefaultHTTPTimeout 是出站请求默认超时。
 	DefaultHTTPTimeout = 15 * time.Second

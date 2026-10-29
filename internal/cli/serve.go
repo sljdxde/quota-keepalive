@@ -11,7 +11,7 @@ import (
 
 func printServing(env *Env, addr, configDir string) {
 	fmt.Fprintf(env.Stdout,
-		"qka 服务已启动：%s（配置目录 %s）。按 Ctrl+C 停止。\n", addr, configDir)
+		"QKA 服务已启动：%s（配置目录 %s）。按 Ctrl+C 停止。\n", addr, configDir)
 }
 
 // Version 是本体版本，发布时由 -ldflags "-X qka/internal/cli.Version=..." 注入。

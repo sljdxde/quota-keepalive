@@ -39,7 +39,7 @@ func buildHandlers(env *Env) map[string]Handler {
 	return h
 }
 
-const usageText = `qka — Quota KeepAlive Agent（额度保活代理）
+const usageText = `QKA — Quota KeepAlive Agent（额度保活代理）
 
 用法：
   qka <mode> [flags]

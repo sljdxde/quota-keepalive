@@ -43,7 +43,7 @@ func (loginEntries) Entry(target string) (login.Entry, bool) {
 		Target:     target,
 		Kind:       login.KindHTTPS,
 		Location:   info.loginURL,
-		Purpose:    "建立 qka 受管登录来源（只读校验，不接收密码/验证码）",
+		Purpose:    "建立 QKA 受管登录来源（只读校验，不接收密码/验证码）",
 		TimeoutSec: 120,
 	}, true
 }
@@ -89,18 +89,18 @@ func (a *App) GUI() *gui.App {
 	)
 
 	deps := gui.Deps{
-		Targets:          targetOrder,
-		Status:           a.status.Status,
-		Plan:             a.status.PlanValidate,
-		Run:              a.RunAll,
-		Settings:         state.currentSettings,
-		SaveSettings:     state.saveSettings,
+		Targets:           targetOrder,
+		Status:            a.status.Status,
+		Plan:              a.status.PlanValidate,
+		Run:               a.RunAll,
+		Settings:          state.currentSettings,
+		SaveSettings:      state.saveSettings,
 		AfterSaveSettings: state.afterSaveSettings,
-		Accounts:         bridge,
-		Logs:             state.logs,
-		AgentStatus:      state.agentStatus,
-		Plugins:          state.plugins,
-		SetDevMode:       state.setDevMode,
+		Accounts:          bridge,
+		Logs:              state.logs,
+		AgentStatus:       state.agentStatus,
+		Plugins:           state.plugins,
+		SetDevMode:        state.setDevMode,
 	}
 	return gui.New(deps)
 }

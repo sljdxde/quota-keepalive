@@ -44,9 +44,9 @@ type HostRow struct {
 // AgentView 是 Agent 接入页视图。
 type AgentView struct {
 	Hosts []HostRow `json:"hosts"`
-	// PlanOwnedByHost 明确计划由宿主保存，qka 不提供计划编辑器。
+	// PlanOwnedByHost 明确计划由宿主保存，QKA 不提供计划编辑器。
 	PlanOwnedByHost bool `json:"plan_owned_by_host"`
-	// PlanObservable 恒 false：宿主内部计划对 qka 不可观察。
+	// PlanObservable 恒 false：宿主内部计划对 QKA 不可观察。
 	PlanObservable bool `json:"plan_observable"`
 }
 

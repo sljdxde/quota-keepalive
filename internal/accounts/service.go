@@ -114,7 +114,7 @@ func (s *Service) SetEnabled(ctx context.Context, target, accountID string, enab
 	return err
 }
 
-// Delete 仅删除 qka 映射（账号行级联来源），目标应用数据完好。
+// Delete 仅删除 QKA 映射（账号行级联来源），目标应用数据完好。
 func (s *Service) Delete(ctx context.Context, target, accountID string) error {
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM accounts WHERE target = ? AND id = ?`, target, accountID)

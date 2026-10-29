@@ -34,7 +34,7 @@ var Schema = []Field{
 		Key:         "launch_at_login",
 		Type:        FieldBool,
 		Label:       "开机自动启动",
-		Description: "登录后自动启动 qka。",
+		Description: "登录后自动启动 QKA。",
 		Default:     false,
 	},
 	{

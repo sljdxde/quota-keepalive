@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>qka</string>
+  <string>QKA</string>
   <key>CFBundleDisplayName</key>
-  <string>qka</string>
+  <string>QKA</string>
   <key>CFBundleIdentifier</key>
   <string>com.qka.agent</string>
   <key>CFBundleExecutable</key>
@@ -28,6 +28,6 @@
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>qka — Quota KeepAlive Agent</string>
+  <string>QKA — Quota KeepAlive Agent</string>
 </dict>
 </plist>

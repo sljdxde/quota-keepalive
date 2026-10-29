@@ -37,7 +37,7 @@ func TestSetupHostScheduleDoesNotWriteState(t *testing.T) {
 		t.Error("应只输出宿主侧步骤")
 	}
 	if strings.Contains(content, "已创建") || strings.Contains(content, "已写入") {
-		t.Error("setup_host_schedule 不得声称写入 qka 状态")
+		t.Error("setup_host_schedule 不得声称写入 QKA 状态")
 	}
 }
 

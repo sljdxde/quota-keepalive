@@ -27,9 +27,9 @@ func Profiles() []Profile {
 			HostID: "workbuddy", Label: "WorkBuddy", MCPSupported: true,
 			ConfigLocation:  "~/.workbuddy/mcp.json",
 			Transport:       "stdio",
-			CredentialWrite: "在 mcp.json 的 qka 条目中写入配对凭据（仅请求头使用）",
+			CredentialWrite: "在 mcp.json 的 `qka` 条目中写入配对凭据（仅请求头使用）",
 			ScheduleGuide:   "在 WorkBuddy 自带的定时/自动化设置中创建每日任务",
-			Uninstall:       "删除 mcp.json 中的 qka 条目",
+			Uninstall:       "删除 mcp.json 中的 `qka` 条目",
 		},
 		{
 			HostID: "codex", Label: "Codex", MCPSupported: true,

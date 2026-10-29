@@ -53,7 +53,7 @@ func TestInitializeHandshake(t *testing.T) {
 	if result.ProtocolVersion != protocolVersion {
 		t.Errorf("协议版本错误: %s", result.ProtocolVersion)
 	}
-	if result.ServerInfo.Name != "qka" {
+	if result.ServerInfo.Name != "QKA" {
 		t.Errorf("serverInfo 错误: %+v", result.ServerInfo)
 	}
 }

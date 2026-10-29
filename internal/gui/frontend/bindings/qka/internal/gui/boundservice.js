@@ -25,7 +25,7 @@ export function AccountsBeginLogin(target) {
 }
 
 /**
- * AccountsDelete 删除 qka 映射。
+ * AccountsDelete 删除 QKA 映射。
  * @param {string} target
  * @param {string} accountID
  * @returns {$CancellablePromise<void>}

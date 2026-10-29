@@ -59,7 +59,7 @@ func Run(now time.Time, in Inputs) Report {
 		{
 			Name:    "install",
 			Verdict: VerdictOK,
-			Detail:  "qka 版本 " + in.Version,
+			Detail:  "QKA 版本 " + in.Version,
 		},
 	}
 
@@ -73,7 +73,7 @@ func Run(now time.Time, in Inputs) Report {
 		}
 		checks = append(checks, Check{
 			Name: "endpoint", Verdict: VerdictFail, Detail: detail,
-			Fix: "重启 qka 或为占用端口的程序让路；不会自动杀进程",
+			Fix: "重启 QKA 或为占用端口的程序让路；不会自动杀进程",
 		})
 	}
 
@@ -95,7 +95,7 @@ func Run(now time.Time, in Inputs) Report {
 		checks = append(checks, Check{
 			Name: "credentials", Verdict: VerdictWarn,
 			Detail: "Keychain 访问曾被拒绝，处于冷却期",
-			Fix:    "稍后重试或在系统提示中允许 qka 访问钥匙串",
+			Fix:    "稍后重试或在系统提示中允许 QKA 访问钥匙串",
 		})
 	default:
 		checks = append(checks, Check{
@@ -141,7 +141,7 @@ func Run(now time.Time, in Inputs) Report {
 	// 宿主内部计划恒为 not_observable，附宿主侧核验指引。
 	checks = append(checks, Check{
 		Name: "host_internal_plan", Verdict: VerdictWarn,
-		Detail: "宿主内部计划对 qka 不可观察（not_observable）",
+		Detail: "宿主内部计划对 QKA 不可观察（not_observable）",
 		Fix:    "在宿主侧核验：检查宿主的调度/配额页或官方控制台",
 	})
 

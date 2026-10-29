@@ -120,7 +120,7 @@ func (s *BoundService) AccountsSetEnabled(target, accountID string, enabled bool
 	return s.deps.Accounts.SetEnabled(context.Background(), target, accountID, enabled)
 }
 
-// AccountsDelete 删除 qka 映射。
+// AccountsDelete 删除 QKA 映射。
 func (s *BoundService) AccountsDelete(target, accountID string) error {
 	return s.deps.Accounts.Delete(context.Background(), target, accountID)
 }

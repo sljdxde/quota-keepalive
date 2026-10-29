@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# qka 一键构建 .app 并打包可安装 DMG（拖拽到 Applications）。
+# QKA 一键构建 .app 并打包可安装 DMG（拖拽到 Applications）。
 #
 # 用法：
 #   scripts/build-dmg.sh                # 本机架构（Apple Silicon = arm64）
 #   ARCH=universal scripts/build-dmg.sh # 通用二进制（arm64 + amd64）
 #
 # 产物：
-#   dist/dmg/qka-<version>-<arch>.dmg
+#   dist/dmg/QKA-<version>-<arch>.dmg
 set -euo pipefail
 
 # ---- 路径与变量 ----
@@ -16,7 +16,7 @@ cd "$ROOT"
 ARCH="${ARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
 VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
 BUILD="$(git rev-parse --short HEAD 2>/dev/null || echo 0)"
-APP_NAME="qka"
+APP_NAME="QKA"
 DIST="$ROOT/dist"
 WORK="$DIST/app"
 APP_BUNDLE="$WORK/$APP_NAME.app"
@@ -46,7 +46,7 @@ gen icon_512x512@2x.png 1024
 iconutil -c icns "$ICONSET" -o "$WORK/AppIcon.icns"
 
 # ---- 2. 编译 ----
-echo "==> 编译 qka（CGO）"
+echo "==> 编译 QKA（CGO）"
 mkdir -p "$DIST/build"
 build_arch() {
   local goarch="$1" out="$2"
@@ -106,25 +106,25 @@ mkdir -p "$DMG_STAGE"
 cp -R "$APP_BUNDLE" "$DMG_STAGE/$APP_NAME.app"
 ln -s /Applications "$DMG_STAGE/Applications"
 
-DMG_NAME="qka-$VERSION-$ARCH"
+DMG_NAME="QKA-$VERSION-$ARCH"
 DMG_OUT="$DIST/dmg"
 mkdir -p "$DMG_OUT"
 DMG_FILE="$DMG_OUT/$DMG_NAME.dmg"
 rm -f "$DMG_FILE"
 
 # 先建可读写镜像，设置窗口布局，再转换为压缩只读镜像
-hdiutil create -volname "qka" -srcfolder "$DMG_STAGE" \
+hdiutil create -volname "QKA" -srcfolder "$DMG_STAGE" \
   -ov -format UDRW "$DIST/dmg-rw.dmg" >/dev/null
 
 # 挂载并美化（拖拽布局）
-MOUNT_DIR="/Volumes/qka"
+MOUNT_DIR="/Volumes/QKA"
 hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
 hdiutil attach "$DIST/dmg-rw.dmg" -nobrowse -readwrite >/dev/null
 
 # 用 AppleScript 设置 Finder 视图与图标位置（失败不阻断，仅影响美观）
 osascript <<'APPLESCRIPT' 2>/dev/null || true
 tell application "Finder"
-  set diskName to "qka"
+  set diskName to "QKA"
   set diskContainer to disk diskName
   set current view of container window of diskContainer to icon view
   set toolbar visible of container window of diskContainer to false
@@ -133,7 +133,7 @@ tell application "Finder"
   set viewOptions to icon view options of container window of diskContainer
   set arrangement of viewOptions to not arranged
   set iconSize of viewOptions to 96
-  set position of item "qka" of diskContainer to {120, 130}
+  set position of item "QKA" of diskContainer to {120, 130}
   set position of item "Applications" of diskContainer to {360, 130}
 end tell
 APPLESCRIPT

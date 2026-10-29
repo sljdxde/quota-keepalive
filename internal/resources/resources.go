@@ -1,4 +1,4 @@
-// Package resources 提供 qka 的只读 MCP resources：今日状态、agents、
+// Package resources 提供 QKA 的只读 MCP resources：今日状态、agents、
 // accounts、logs（游标）、宿主集成；不提供 schedule resource。
 package resources
 
@@ -84,6 +84,6 @@ func parseQuery(q string) map[string]string {
 }
 
 const hostIntegrationText = `宿主侧集成指引：
-- qka 不创建调度：请在宿主侧安排每日调用 checkin_run；
+- QKA 不创建调度：请在宿主侧安排每日调用 checkin_run；
 - WorkBuddy CN 另需每日 keepalive 调用；
-- 宿主内部计划对 qka 不可观察，请在宿主侧核验。`
+- 宿主内部计划对 QKA 不可观察，请在宿主侧核验。`

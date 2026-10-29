@@ -62,7 +62,7 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		result := initializeResult{
 			ProtocolVersion: protocolVersion,
 			Capabilities:    map[string]any{"tools": map[string]any{}},
-			ServerInfo:      serverInfo{Name: "qka", Version: version},
+			ServerInfo:      serverInfo{Name: "QKA", Version: version},
 		}
 		data, _ := json.Marshal(result)
 		resp.Result = data

@@ -36,7 +36,7 @@ type Message struct {
 var catalog = []Prompt{
 	{
 		Name:        "install_and_pair",
-		Description: "引导用户安装 qka 并与宿主完成配对",
+		Description: "引导用户安装 QKA 并与宿主完成配对",
 	},
 	{
 		Name:        "add_account_with_official_login",
@@ -47,7 +47,7 @@ var catalog = []Prompt{
 	},
 	{
 		Name:        "setup_host_schedule",
-		Description: "输出宿主侧创建/核验定时任务的步骤与调用文本（不写 qka 状态）",
+		Description: "输出宿主侧创建/核验定时任务的步骤与调用文本（不写 QKA 状态）",
 	},
 	{
 		Name:        "diagnose_failed_account",
@@ -72,10 +72,10 @@ func Render(name string, args map[string]string) ([]Message, error) {
 	switch name {
 	case "install_and_pair":
 		return []Message{{Role: "user", Content: strings.Join([]string{
-			"请按以下步骤安装并配对 qka：",
-			"1. 启动 qka，菜单栏出现图标；",
-			"2. 在宿主应用中选择连接 qka，完成一次性配对；",
-			"3. 配对成功后，宿主即可列出 qka 的工具。",
+			"请按以下步骤安装并配对 QKA：",
+			"1. 启动 QKA，菜单栏出现图标；",
+			"2. 在宿主应用中选择连接 QKA，完成一次性配对；",
+			"3. 配对成功后，宿主即可列出 QKA 的工具。",
 		}, "\n")}}, nil
 
 	case "add_account_with_official_login":
@@ -84,15 +84,15 @@ func Render(name string, args map[string]string) ([]Message, error) {
 			"为 " + target + " 添加账号（仅官方登录，不收集密码/验证码）：",
 			"1. 在账号页选择目标 " + target + "，点击「官方登录添加」；",
 			"2. 浏览器打开官方站点，由用户亲自登录；",
-			"3. 登录验证通过后，qka 建立受管来源并自动发现账号。",
+			"3. 登录验证通过后，QKA 建立受管来源并自动发现账号。",
 		}, "\n")}}, nil
 
 	case "setup_host_schedule":
-		// 仅输出宿主侧步骤与调用文本，不写 qka 状态。
+		// 仅输出宿主侧步骤与调用文本，不写 QKA 状态。
 		return []Message{{Role: "user", Content: strings.Join([]string{
-			"以下操作在宿主侧完成，qka 不创建任何调度状态：",
+			"以下操作在宿主侧完成，QKA 不创建任何调度状态：",
 			"1. 在宿主的自动化/定时能力中新建每日任务；",
-			"2. 任务在每个北京日早晨调用 qka 的 checkin_run；",
+			"2. 任务在每个北京日早晨调用 QKA 的 checkin_run；",
 			"3. 若为 WorkBuddy CN，再安排一次 keepalive 调用；",
 			"4. 核验：在宿主侧确认任务已启用并查看最近一次执行结果。",
 		}, "\n")}}, nil

@@ -1,4 +1,4 @@
-// Package gui 组装 qka 的菜单栏托盘、面板与主窗口（Wails v3）。
+// Package gui 组装 QKA 的菜单栏托盘、面板与主窗口（Wails v3）。
 package gui
 
 import (
@@ -48,7 +48,7 @@ func New(deps Deps) *App {
 	}
 
 	wails := application.New(application.Options{
-		Name: "qka",
+		Name: "QKA",
 		Services: []application.Service{
 			application.NewService(bound),
 		},
@@ -63,7 +63,7 @@ func New(deps Deps) *App {
 	// 面板：frameless、置顶、初始隐藏，吸附在托盘图标下方。
 	panel := wails.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:  "panel",
-		Title: "qka",
+		Title: "QKA",
 		Width: 320, Height: 420,
 		Frameless:   true,
 		AlwaysOnTop: true,
@@ -74,7 +74,7 @@ func New(deps Deps) *App {
 	// 主窗口：五页签，初始隐藏。
 	main := wails.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:  "main",
-		Title: "qka",
+		Title: "QKA",
 		Width: 800, Height: 600,
 		Hidden: true,
 		URL:    "/main.html",
@@ -130,7 +130,7 @@ func New(deps Deps) *App {
 	// 托盘：模板图标（深浅色自动着色）、吸附面板（点击切换、失焦即隐）、菜单。
 	tray := wails.SystemTray.New()
 	tray.SetTemplateIcon(templateIcon())
-	tray.SetTooltip("qka")
+	tray.SetTooltip("QKA")
 	tray.AttachWindow(panel)
 	tray.SetMenu(menu)
 

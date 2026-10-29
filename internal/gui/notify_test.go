@@ -17,7 +17,7 @@ func TestMacNotifierUsesOsascriptDisplayNotification(t *testing.T) {
 		},
 	}
 
-	if err := n.Notify(context.Background(), "qka", "签到完成"); err != nil {
+	if err := n.Notify(context.Background(), "QKA", "签到完成"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -26,7 +26,7 @@ func TestMacNotifierUsesOsascriptDisplayNotification(t *testing.T) {
 	}
 	joined := strings.Join(gotArgs, " ")
 	if !strings.Contains(joined, "display notification") ||
-		!strings.Contains(joined, "签到完成") || !strings.Contains(joined, "qka") {
+		!strings.Contains(joined, "签到完成") || !strings.Contains(joined, "QKA") {
 		t.Fatalf("应下发 display notification 且含标题与正文，实际 %v", gotArgs)
 	}
 }

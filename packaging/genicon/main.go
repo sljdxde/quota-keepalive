@@ -1,4 +1,4 @@
-// Command genicon 生成 qka 的 App 图标主图（1024×1024）：
+// Command genicon 生成 QKA 的 App 图标主图（1024×1024）：
 // 保活绿圆角底 + 白色心电线，与 002设计内容/logo/qka-logo-final.svg 一致。
 package main
 

@@ -18,7 +18,7 @@ type AccountBridge interface {
 	ImportSource(ctx context.Context, target, accountID, sourceID string) error
 	// SetEnabled 逐账号启停。
 	SetEnabled(ctx context.Context, target, accountID string, enabled bool) error
-	// Delete 删除 qka 映射（仅宿主数据）。
+	// Delete 删除 QKA 映射（仅宿主数据）。
 	Delete(ctx context.Context, target, accountID string) error
 	// PinSource 设置来源优先级（置顶/取消）。
 	PinSource(ctx context.Context, target, accountID, sourceID string, pinned bool) error

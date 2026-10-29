@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Occupant 报告占用某端口的进程身份。qka 只报告、绝不结束占用进程。
+// Occupant 报告占用某端口的进程身份。QKA 只报告、绝不结束占用进程。
 type Occupant struct {
 	Port int    `json:"port"`
 	PID  int    `json:"pid"`

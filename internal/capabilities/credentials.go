@@ -141,7 +141,7 @@ func (c *CredentialService) Resolve(ctx context.Context, ref CredentialRef) (Cre
 	return Credential{Secret: secret, Meta: c.meta(ref, secret)}, nil
 }
 
-// ResolveImported 为导入来源构造只读凭据；明文由调用方从目标应用存储读取，qka 不写入。
+// ResolveImported 为导入来源构造只读凭据；明文由调用方从目标应用存储读取，QKA 不写入。
 func (c *CredentialService) ResolveImported(ctx context.Context, ref CredentialRef, secret string) (Credential, error) {
 	if err := c.grant.Authorize("credentials.resolve"); err != nil {
 		return Credential{}, err

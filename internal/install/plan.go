@@ -37,7 +37,7 @@ func Preview(hostID string) (Plan, error) {
 	return Plan{
 		HostID:           hostID,
 		DownloadURL:      "https://official.example/qka/qka-darwin-arm64",
-		InstallPath:      "/Applications/qka.app",
+		InstallPath:      "/Applications/QKA.app",
 		HostConfigChange: profile.ConfigLocation + "（" + profile.Transport + "）",
 		BackupPath:       profile.ConfigLocation + ".bak",
 		Verify:           "首启后验证 loopback 连通并完成配对",
@@ -45,7 +45,7 @@ func Preview(hostID string) (Plan, error) {
 		Steps: []string{
 			"下载固定官方源并校验 SHA-256",
 			"清除 quarantine 属性",
-			"首启 qka",
+			"首启 QKA",
 			"为该宿主写入专属配对凭据（写入前备份）",
 			"验证 loopback 连通",
 			"引导钥匙串授权并当场验证",

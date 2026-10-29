@@ -9,7 +9,7 @@ import (
 )
 
 // ErrEndpointConflict 表示已持久化（已配对）的端点端口被占用。
-// 这是需要宿主侧重新配置的显式错误，qka 不会静默改端口或杀占用进程。
+// 这是需要宿主侧重新配置的显式错误，QKA 不会静默改端口或杀占用进程。
 var ErrEndpointConflict = errors.New("已持久化端点端口被占用，需在宿主侧重新配置")
 
 // SelectAndPersist 为首装选择端点并持久化到 endpoint.json。
