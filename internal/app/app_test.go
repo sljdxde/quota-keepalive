@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"qka/internal/accounts"
@@ -18,6 +19,10 @@ import (
 
 // newFakeDoubao 启动受控假目标：模拟 doubao-work 的发现与签到端点。
 func newFakeDoubao(t *testing.T) *httptest.Server {
+	return newFakeDoubaoWithHealth(t, "healthy")
+}
+
+func newFakeDoubaoWithHealth(t *testing.T, health string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 
@@ -27,7 +32,7 @@ func newFakeDoubao(t *testing.T) *httptest.Server {
 				"id":             "u1",
 				"displayName":    "测试用户",
 				"maskedIdentity": "****5678",
-				"source":         map[string]any{"id": "src1", "kind": "managed", "health": "healthy"},
+				"source":         map[string]any{"id": "src1", "kind": "managed", "health": health},
 			}},
 		})
 	})
@@ -125,6 +130,47 @@ func TestDiscoverAndCheckinEndToEnd(t *testing.T) {
 	}
 	if _, err := a.CallTool(ctx, "feed_list", nil); err != nil {
 		t.Fatalf("feed_list 失败: %v", err)
+	}
+}
+
+func TestDiscoverCarriesSourceHealth(t *testing.T) {
+	fake := newFakeDoubaoWithHealth(t, "reauth_required")
+	defer fake.Close()
+	a := buildTestApp(t, fake.URL)
+
+	found, err := a.Discover(context.Background(), "doubao-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].Health != accounts.HealthReauthRequired {
+		t.Fatalf("发现结果应携带来源健康状态，实际 %+v", found)
+	}
+}
+
+func TestAccountsManageRejectsEnableWithoutHealthySource(t *testing.T) {
+	fake := newFakeDoubaoWithHealth(t, "reauth_required")
+	defer fake.Close()
+	a := buildTestApp(t, fake.URL)
+	ctx := context.Background()
+
+	if _, err := a.CallTool(ctx, "accounts_manage",
+		rawJSON(`{"action":"discover","target":"doubao-work"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.CallTool(ctx, "accounts_manage",
+		rawJSON(`{"action":"set_enabled","target":"doubao-work","account_id":"u1","enabled":true}`))
+	if err == nil || !strings.Contains(err.Error(), "无可用健康来源") {
+		t.Fatalf("无健康来源时应返回可操作失败，实际 %v", err)
+	}
+
+	list, err := a.CallTool(ctx, "accounts_manage",
+		rawJSON(`{"action":"list","target":"doubao-work"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accts := list.([]accounts.Account)
+	if len(accts) != 1 || accts[0].Enabled {
+		t.Fatalf("启用失败后账号必须保持停用，实际 %+v", accts)
 	}
 }
 

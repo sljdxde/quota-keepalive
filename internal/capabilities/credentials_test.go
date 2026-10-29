@@ -170,4 +170,54 @@ func TestManagedRefreshAllowed(t *testing.T) {
 	}
 }
 
+func TestDeleteManagedRemovesCredentialIdempotently(t *testing.T) {
+	keychain := failingSecretStore{}
+	file := NewFileSecretStore(t.TempDir())
+	svc := newCredService(keychain, file, fixedNow)
+	ref := managedRef()
+	ctx := context.Background()
+
+	if err := svc.Persist(ctx, ref, "managed-secret"); err != nil {
+		t.Fatalf("保存受管凭据失败: %v", err)
+	}
+	if err := svc.DeleteManaged(ctx, ref.Target, ref.AccountID, ref.SourceID); err != nil {
+		t.Fatalf("删除受管凭据失败: %v", err)
+	}
+	if _, err := svc.Resolve(ctx, ref); !errors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("删除后凭据应不可读取，实际 %v", err)
+	}
+	if err := svc.DeleteManaged(ctx, ref.Target, ref.AccountID, ref.SourceID); err != nil {
+		t.Fatalf("重复删除应幂等，实际 %v", err)
+	}
+}
+
+type deleteFailingSecretStore struct{}
+
+func (deleteFailingSecretStore) Set(context.Context, string, string, string) error {
+	return nil
+}
+
+func (deleteFailingSecretStore) Get(context.Context, string, string) (string, error) {
+	return "", ErrSecretNotFound
+}
+
+func (deleteFailingSecretStore) Delete(context.Context, string, string) error {
+	return errors.New("keychain unavailable")
+}
+
+func TestDeleteManagedReportsBackendFailure(t *testing.T) {
+	file := NewFileSecretStore(t.TempDir())
+	svc := newCredService(deleteFailingSecretStore{}, file, fixedNow)
+	ref := managedRef()
+	ctx := context.Background()
+	if err := file.Set(ctx, serviceName,
+		svc.secretAccount(ref), "managed-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DeleteManaged(ctx, ref.Target, ref.AccountID, ref.SourceID); err == nil {
+		t.Fatal("任一凭据后端清理失败时必须报告错误")
+	}
+}
+
 func fixedNow() time.Time { return time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC) }
