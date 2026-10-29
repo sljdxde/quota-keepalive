@@ -67,3 +67,8 @@ func (s *Store) Close() error {
 func (s *Store) ConfigDir() string {
 	return s.configDir
 }
+
+// DB 返回底层数据库连接，供业务包（引擎等）执行其领域 SQL。
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
