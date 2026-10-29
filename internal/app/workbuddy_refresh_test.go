@@ -180,6 +180,98 @@ func TestWorkBuddyManagedRefreshFailureIsolatesAccountAndReloginRecovers(t *test
 	}
 }
 
+func TestWorkBuddyManagedRetryableRefreshKeepsAccountsAndHealth(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	ctx := context.Background()
+	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	acct := accounts.NewService(st.DB())
+	if err := acct.Discover(ctx, "workbuddy-cn", []accounts.DiscoveredAccount{
+		{
+			ID: "wb_retry", DisplayName: "****5555", MaskedIdentity: "****5555",
+			SourceID: "wbm_retry", SourceKind: accounts.KindManaged,
+		},
+		{
+			ID: "wb_other", DisplayName: "****6666", MaskedIdentity: "****6666",
+			SourceID: "wbm_other", SourceKind: accounts.KindManaged,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, accountID := range []string{"wb_retry", "wb_other"} {
+		if err := acct.SetEnabled(ctx, "workbuddy-cn", accountID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	file := newAppSecretStore()
+	creds := capabilities.NewCredentialService(
+		failingAppSecretStore{},
+		file,
+		capabilities.Grant{
+			"credentials.managed": true,
+			"credentials.resolve": true,
+		},
+		func() time.Time { return now },
+	)
+	ref := capabilities.CredentialRef{
+		Target: "workbuddy-cn", AccountID: "wb_retry",
+		SourceID: "wbm_retry", Kind: capabilities.Managed,
+	}
+	if err := creds.Persist(ctx, ref, string(workBuddyCredential(
+		t, "retry-access", "retry-refresh", "uid-retry", "copilot.tencent.com",
+		now.Add(10*time.Second),
+	))); err != nil {
+		t.Fatal(err)
+	}
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/plugin/auth/token/refresh" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer target.Close()
+
+	a := &App{
+		cfg:         Config{BaseURLs: map[string]string{"workbuddy-cn": target.URL}},
+		now:         func() time.Time { return now },
+		accounts:    acct,
+		credentials: creds,
+	}
+	session, err := a.newWorkBuddyManagedSession(ctx, "wb_retry", "wbm_retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		target.URL+"/billing/meter/get-user-resource-summary", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Do(ctx, req); !errors.Is(err, workbuddy.ErrManagedRetryable) {
+		t.Fatalf("500 刷新失败应可重试，实际 %v", err)
+	}
+
+	list, err := acct.List(ctx, "workbuddy-cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("可重试刷新失败不得删除账号，实际 %d 个", len(list))
+	}
+	for _, account := range list {
+		if !account.Enabled || len(account.Sources) != 1 ||
+			account.Sources[0].Health != accounts.HealthHealthy {
+			t.Errorf("可重试刷新失败不得改变账号或来源健康: %+v", account)
+		}
+	}
+}
+
 func TestWorkBuddyManagedSessionRejectsImportedSource(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

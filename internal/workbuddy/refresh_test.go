@@ -363,27 +363,83 @@ func TestManagedSessionSecond401MarksReauthWithoutThirdAttempt(t *testing.T) {
 	}
 }
 
-func TestManagedSessionRefreshFailureMarksReauthBeforeRequest(t *testing.T) {
+func TestManagedSessionRetryableRefreshFailureLeavesHealthUnchanged(t *testing.T) {
+	for _, status := range []int{
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+			store := newManagedCredentialStore(PendingCredential{
+				Target: "workbuddy-cn", AccessToken: "access-retryable",
+				RefreshToken:    "refresh-retryable",
+				AccessExpiresAt: now.Add(10 * time.Second).UnixMilli(),
+				Domain:          "copilot.tencent.com", UID: "uid-retryable",
+			})
+
+			var requestCalls int
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v2/plugin/auth/token/refresh":
+					w.WriteHeader(status)
+				case "/billing/meter/get-user-resource-summary":
+					requestCalls++
+					writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer target.Close()
+
+			session := NewManagedSession(ManagedSessionConfig{
+				BaseURL: target.URL, Store: store, Now: func() time.Time { return now },
+			})
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+				target.URL+"/billing/meter/get-user-resource-summary", strings.NewReader("{}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.Do(context.Background(), req)
+			if !errors.Is(err, ErrManagedRetryable) {
+				t.Fatalf("HTTP %d 应返回可重试错误，实际 %v", status, err)
+			}
+			if errors.Is(err, ErrManagedReauthRequired) {
+				t.Fatalf("HTTP %d 不得要求重新登录", status)
+			}
+			if requestCalls != 0 {
+				t.Errorf("临期刷新失败时不得继续使用旧 token 发请求，实际 %d 次", requestCalls)
+			}
+			if store.reauth != 0 || store.healthy != 0 {
+				t.Errorf("可重试刷新失败不得改变来源健康，healthy=%d reauth=%d",
+					store.healthy, store.reauth)
+			}
+		})
+	}
+}
+
+func TestManagedSessionRetryableRefreshAfter401LeavesHealthUnchanged(t *testing.T) {
 	const (
-		oldAccess  = "access-refresh-failure"
-		oldRefresh = "refresh-refresh-failure"
-		uid        = "uid-refresh-failure"
+		oldAccess  = "access-401-retryable"
+		oldRefresh = "refresh-401-retryable"
+		uid        = "uid-401-retryable"
 		domain     = "copilot.tencent.com"
 	)
 	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
 	store := newManagedCredentialStore(PendingCredential{
 		Target: "workbuddy-cn", AccessToken: oldAccess, RefreshToken: oldRefresh,
-		AccessExpiresAt: now.Add(10 * time.Second).UnixMilli(), Domain: domain, UID: uid,
+		AccessExpiresAt: now.Add(time.Hour).UnixMilli(), Domain: domain, UID: uid,
 	})
 
-	var requestCalls int
+	var refreshCalls, requestCalls int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/plugin/auth/token/refresh":
-			w.WriteHeader(http.StatusInternalServerError)
+			refreshCalls++
+			w.WriteHeader(http.StatusTooManyRequests)
 		case "/billing/meter/get-user-resource-summary":
 			requestCalls++
-			writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+			w.WriteHeader(http.StatusUnauthorized)
 		default:
 			http.NotFound(w, r)
 		}
@@ -399,14 +455,154 @@ func TestManagedSessionRefreshFailureMarksReauthBeforeRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = session.Do(context.Background(), req)
-	if !errors.Is(err, ErrManagedReauthRequired) {
-		t.Fatalf("刷新失败应要求重新登录，实际 %v", err)
+	if !errors.Is(err, ErrManagedRetryable) {
+		t.Fatalf("401 后刷新遇到 429 应可重试，实际 %v", err)
 	}
-	if requestCalls != 0 {
-		t.Errorf("临期刷新失败时不得继续使用旧 token 发请求，实际 %d 次", requestCalls)
+	if errors.Is(err, ErrManagedReauthRequired) {
+		t.Fatal("401 后刷新遇到 429 不得要求重新登录")
 	}
-	if store.reauth != 1 {
-		t.Errorf("刷新失败应标记需重登，实际 %d", store.reauth)
+	if refreshCalls != 1 || requestCalls != 1 {
+		t.Errorf("应只重试刷新一次且不再发业务请求，refresh=%d request=%d",
+			refreshCalls, requestCalls)
+	}
+	if store.reauth != 0 || store.healthy != 0 {
+		t.Errorf("可重试刷新失败不得改变来源健康，healthy=%d reauth=%d",
+			store.healthy, store.reauth)
+	}
+}
+
+func TestManagedSessionNetworkRefreshFailureLeavesHealthUnchanged(t *testing.T) {
+	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	store := newManagedCredentialStore(PendingCredential{
+		Target: "workbuddy-cn", AccessToken: "access-network",
+		RefreshToken:    "refresh-network",
+		AccessExpiresAt: now.Add(10 * time.Second).UnixMilli(),
+		Domain:          "copilot.tencent.com", UID: "uid-network",
+	})
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := target.URL
+	target.Close()
+
+	session := NewManagedSession(ManagedSessionConfig{
+		BaseURL: baseURL, Store: store, Now: func() time.Time { return now },
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		baseURL+"/billing/meter/get-user-resource-summary", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = session.Do(context.Background(), req)
+	if !errors.Is(err, ErrManagedRetryable) {
+		t.Fatalf("网络失败应返回可重试错误，实际 %v", err)
+	}
+	if errors.Is(err, ErrManagedReauthRequired) {
+		t.Fatal("网络失败不得要求重新登录")
+	}
+	if store.reauth != 0 || store.healthy != 0 {
+		t.Errorf("网络失败不得改变来源健康，healthy=%d reauth=%d",
+			store.healthy, store.reauth)
+	}
+}
+
+func TestManagedSessionRefreshRejectionMarksReauth(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "HTTP 401", status: http.StatusUnauthorized},
+		{name: "HTTP 403", status: http.StatusForbidden},
+		{name: "business 12153", status: http.StatusOK,
+			body: `{"code":12153,"msg":"refresh token failed"}`},
+		{name: "invalid_grant", status: http.StatusBadRequest,
+			body: `{"code":10000,"msg":"invalid_grant: Invalid refresh token"}`},
+		{name: "nested invalid_grant", status: http.StatusBadRequest,
+			body: `{"error":{"message":"invalid_grant: Invalid refresh token"}}`},
+		{name: "token format error", status: http.StatusBadRequest,
+			body: `{"code":10000,"msg":"token format error"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+			store := newManagedCredentialStore(PendingCredential{
+				Target: "workbuddy-cn", AccessToken: "access-rejected",
+				RefreshToken:    "refresh-rejected",
+				AccessExpiresAt: now.Add(10 * time.Second).UnixMilli(),
+				Domain:          "copilot.tencent.com", UID: "uid-rejected",
+			})
+			var requestCalls int
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v2/plugin/auth/token/refresh":
+					w.WriteHeader(tt.status)
+					_, _ = io.WriteString(w, tt.body)
+				case "/billing/meter/get-user-resource-summary":
+					requestCalls++
+					writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer target.Close()
+
+			session := NewManagedSession(ManagedSessionConfig{
+				BaseURL: target.URL, Store: store, Now: func() time.Time { return now },
+			})
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+				target.URL+"/billing/meter/get-user-resource-summary", strings.NewReader("{}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = session.Do(context.Background(), req)
+			if !errors.Is(err, ErrManagedReauthRequired) {
+				t.Fatalf("刷新凭据被拒绝应要求重新登录，实际 %v", err)
+			}
+			if errors.Is(err, ErrManagedRetryable) {
+				t.Fatal("凭据被拒绝不得归类为可重试")
+			}
+			if requestCalls != 0 {
+				t.Errorf("刷新被拒绝后不得继续业务请求，实际 %d 次", requestCalls)
+			}
+			if store.reauth != 1 || store.healthy != 0 {
+				t.Errorf("刷新被拒绝应仅标记需重登，healthy=%d reauth=%d",
+					store.healthy, store.reauth)
+			}
+		})
+	}
+}
+
+func TestManagedSessionUnparseableRefreshResponseIsRetryable(t *testing.T) {
+	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
+	store := newManagedCredentialStore(PendingCredential{
+		Target: "workbuddy-cn", AccessToken: "access-unparseable",
+		RefreshToken:    "refresh-unparseable",
+		AccessExpiresAt: now.Add(10 * time.Second).UnixMilli(),
+		Domain:          "copilot.tencent.com", UID: "uid-unparseable",
+	})
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/plugin/auth/token/refresh" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, "temporarily unavailable")
+	}))
+	defer target.Close()
+
+	session := NewManagedSession(ManagedSessionConfig{
+		BaseURL: target.URL, Store: store, Now: func() time.Time { return now },
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		target.URL+"/billing/meter/get-user-resource-summary", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = session.Do(context.Background(), req)
+	if !errors.Is(err, ErrManagedRetryable) {
+		t.Fatalf("暂时无法解析刷新响应应可重试，实际 %v", err)
+	}
+	if store.reauth != 0 || store.healthy != 0 {
+		t.Errorf("解析失败不得改变来源健康，healthy=%d reauth=%d",
+			store.healthy, store.reauth)
 	}
 }
 

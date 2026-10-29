@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,9 @@ import (
 const managedRefreshLead = time.Minute
 
 var (
+	// ErrManagedRetryable means the refresh failure says nothing about the
+	// sign-in itself and may recover without a new browser sign-in.
+	ErrManagedRetryable = errors.New("WorkBuddy CN 受管来源刷新暂时失败")
 	// ErrManagedReauthRequired means QKA cannot renew the managed source and
 	// the user must complete the official browser sign-in again.
 	ErrManagedReauthRequired = errors.New("WorkBuddy CN 受管来源需要重新登录")
@@ -150,7 +154,13 @@ func (s *ManagedSession) refresh(ctx context.Context, observed PendingCredential
 
 	next, err := s.requestRefresh(ctx, current)
 	if err != nil {
-		return PendingCredential{}, s.reauth(ctx, "刷新失败")
+		if errors.Is(err, ErrManagedReauthRequired) {
+			return PendingCredential{}, s.reauth(ctx, "刷新凭据被拒绝")
+		}
+		if errors.Is(err, ErrManagedRetryable) {
+			return PendingCredential{}, err
+		}
+		return PendingCredential{}, fmt.Errorf("%w: %v", ErrManagedRetryable, err)
 	}
 	raw, err := json.Marshal(next)
 	if err != nil {
@@ -178,12 +188,14 @@ func (s *ManagedSession) reauth(ctx context.Context, reason string) error {
 func (s *ManagedSession) requestRefresh(ctx context.Context, current PendingCredential) (PendingCredential, error) {
 	domain, err := normalizeVerificationDomain(current.Domain, s.baseURL)
 	if err != nil {
-		return PendingCredential{}, err
+		return PendingCredential{}, fmt.Errorf("%w: 凭据 domain 无效",
+			ErrManagedReauthRequired)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		s.baseURL+"/v2/plugin/auth/token/refresh", bytes.NewReader([]byte("{}")))
 	if err != nil {
-		return PendingCredential{}, err
+		return PendingCredential{}, fmt.Errorf("%w: 无法创建刷新请求",
+			ErrManagedRetryable)
 	}
 	setBaseHeaders(req)
 	req.Header.Set("X-Refresh-Token", current.RefreshToken)
@@ -196,25 +208,94 @@ func (s *ManagedSession) requestRefresh(ctx context.Context, current PendingCred
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return PendingCredential{}, err
+		return PendingCredential{}, fmt.Errorf("%w: 网络失败", ErrManagedRetryable)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return PendingCredential{}, fmt.Errorf("刷新返回 HTTP %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil || len(body) > maxResponseSize {
-		return PendingCredential{}, errInvalidResponse
+		return PendingCredential{}, fmt.Errorf("%w: 无法读取刷新响应",
+			ErrManagedRetryable)
 	}
-	var env envelope
-	if err := json.Unmarshal(body, &env); err != nil || env.Code != 0 {
-		return PendingCredential{}, errInvalidResponse
+	var env refreshEnvelope
+	parseErr := json.Unmarshal(body, &env)
+	code, hasCode := refreshBusinessCode(env.Code)
+	errorText := strings.ToLower(string(body))
+	if parseErr == nil {
+		errorText += " " + strings.ToLower(env.errorText())
+	}
+	if resp.StatusCode == http.StatusUnauthorized ||
+		resp.StatusCode == http.StatusForbidden ||
+		(hasCode && code == 12153) ||
+		strings.Contains(errorText, "invalid_grant") ||
+		strings.Contains(errorText, "token format error") {
+		return PendingCredential{}, fmt.Errorf("%w: 刷新凭据被拒绝 (HTTP %d)",
+			ErrManagedReauthRequired, resp.StatusCode)
+	}
+	if resp.StatusCode == http.StatusRequestTimeout ||
+		resp.StatusCode == http.StatusTooManyRequests ||
+		resp.StatusCode >= 500 {
+		return PendingCredential{}, fmt.Errorf("%w: 刷新暂时失败 (HTTP %d)",
+			ErrManagedRetryable, resp.StatusCode)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return PendingCredential{}, fmt.Errorf("%w: 刷新返回 HTTP %d",
+			ErrManagedRetryable, resp.StatusCode)
+	}
+	if parseErr != nil {
+		return PendingCredential{}, fmt.Errorf("%w: 暂时无法解析刷新响应",
+			ErrManagedRetryable)
+	}
+	if hasCode && code != 0 {
+		return PendingCredential{}, fmt.Errorf("%w: 刷新业务码 %d",
+			ErrManagedRetryable, code)
 	}
 	var got tokenData
 	if err := json.Unmarshal(env.Data, &got); err != nil || got.AccessToken == "" {
-		return PendingCredential{}, errInvalidResponse
+		return PendingCredential{}, fmt.Errorf("%w: 刷新响应缺少 access token",
+			ErrManagedRetryable)
 	}
 	return mergeManagedToken(current, got, s.now()), nil
+}
+
+type refreshEnvelope struct {
+	Code    json.RawMessage `json:"code"`
+	Msg     string          `json:"msg"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+	Error   json.RawMessage `json:"error"`
+}
+
+func (e refreshEnvelope) errorText() string {
+	parts := []string{e.Msg, e.Message}
+	var text string
+	if json.Unmarshal(e.Error, &text) == nil {
+		parts = append(parts, text)
+	}
+	var nested struct {
+		Message string          `json:"message"`
+		Type    string          `json:"type"`
+		Code    json.RawMessage `json:"code"`
+	}
+	if json.Unmarshal(e.Error, &nested) == nil {
+		parts = append(parts, nested.Message, nested.Type, string(nested.Code))
+	}
+	return strings.Join(parts, " ")
+}
+
+func refreshBusinessCode(raw json.RawMessage) (int, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var code int
+	if json.Unmarshal(raw, &code) == nil {
+		return code, true
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		code, err := strconv.Atoi(strings.TrimSpace(text))
+		return code, err == nil
+	}
+	return 0, false
 }
 
 func mergeManagedToken(current PendingCredential, got tokenData, now time.Time) PendingCredential {
