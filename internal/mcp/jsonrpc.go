@@ -58,3 +58,14 @@ type toolsCallParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
+
+// toolCallResult 是 MCP tools/call 的成功结果：结构化工具输出以 JSON 文本承载。
+type toolCallResult struct {
+	Content []toolTextContent `json:"content"`
+	IsError bool              `json:"isError,omitempty"`
+}
+
+type toolTextContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}

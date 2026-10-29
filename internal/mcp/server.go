@@ -7,17 +7,26 @@ import (
 	"net/http"
 )
 
-// ServerDeps 是服务依赖（后续接线 registry、store、各工具实现）。
-type ServerDeps struct{}
+// ToolCaller 由组合根注入：执行一个具名工具并返回可 JSON 序列化的结果。
+type ToolCaller func(ctx context.Context, name string, args json.RawMessage) (any, error)
+
+// ServerDeps 是服务依赖（组合根注入工具调用与版本）。
+type ServerDeps struct {
+	// CallTool 执行 tools/call；为 nil 时保持显式 not-implemented 错误。
+	CallTool ToolCaller
+	// Version 是 initialize/serverInfo 上报的本体版本。
+	Version string
+}
 
 // Server 是仅绑定 loopback 的 streamable HTTP MCP 服务。
 type Server struct {
 	tools []toolDef
+	deps  ServerDeps
 }
 
 // NewServer 创建 MCP 服务。
-func NewServer(_ ServerDeps) *Server {
-	return &Server{tools: toolDefinitions()}
+func NewServer(deps ServerDeps) *Server {
+	return &Server{tools: toolDefinitions(), deps: deps}
 }
 
 // Handler 返回路由处理器（MCP 端点路径 /mcp）。
@@ -46,10 +55,14 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 
 	switch req.Method {
 	case "initialize":
+		version := s.deps.Version
+		if version == "" {
+			version = "1.0.0"
+		}
 		result := initializeResult{
 			ProtocolVersion: protocolVersion,
 			Capabilities:    map[string]any{"tools": map[string]any{}},
-			ServerInfo:      serverInfo{Name: "qka", Version: "1.0.0"},
+			ServerInfo:      serverInfo{Name: "qka", Version: version},
 		}
 		data, _ := json.Marshal(result)
 		resp.Result = data
@@ -66,11 +79,28 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 			resp.Error = &rpcError{Code: errInvalidParams, Message: "Invalid params"}
 			return resp
 		}
-		// 05 阶段工具尚未接线：返回稳定显式错误，不崩溃。
-		resp.Error = &rpcError{
-			Code:    errToolNotImplemented,
-			Message: "工具尚未实现: " + params.Name,
+		if s.deps.CallTool == nil {
+			// 未注入工具实现：返回稳定显式错误，不崩溃。
+			resp.Error = &rpcError{
+				Code:    errToolNotImplemented,
+				Message: "工具尚未实现: " + params.Name,
+			}
+			return resp
 		}
+		out, err := s.deps.CallTool(ctx, params.Name, params.Arguments)
+		if err != nil {
+			resp.Error = &rpcError{Code: errInternalError, Message: err.Error()}
+			return resp
+		}
+		payload, err := json.Marshal(out)
+		if err != nil {
+			resp.Error = &rpcError{Code: errInternalError, Message: err.Error()}
+			return resp
+		}
+		data, _ := json.Marshal(toolCallResult{
+			Content: []toolTextContent{{Type: "text", Text: string(payload)}},
+		})
+		resp.Result = data
 		return resp
 
 	case "notifications/initialized":

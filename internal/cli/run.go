@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"io"
 	"sort"
 )
 
@@ -18,11 +16,13 @@ func unimplemented(name string) Handler {
 	}
 }
 
-func handlers() map[string]Handler {
+// buildHandlers 装配形态表：serve 为真实实现，其余形态保持显式未实现。
+func buildHandlers(env *Env) map[string]Handler {
 	h := map[string]Handler{}
 	for _, name := range modeNames {
 		h[name] = unimplemented(name)
 	}
+	h["serve"] = serveHandler
 	return h
 }
 
@@ -54,23 +54,20 @@ func Run(ctx context.Context, env *Env) int {
 	name := env.Args[0]
 	rest := env.Args[1:]
 
-	handler, ok := handlers()[name]
+	handler, ok := buildHandlers(env)[name]
 	if !ok {
 		return fail(env, rest, &ErrorInfo{Code: "unknown_command", Message: fmt.Sprintf("未知形态：%s", name)})
 	}
 
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	jsonOut := fs.Bool("json", false, "以稳定 JSON 输出")
-	fs.SetOutput(io.Discard)
-	if err := fs.Parse(rest); err != nil {
-		return fail(env, rest, &ErrorInfo{Code: "bad_flags", Message: err.Error()})
-	}
-
-	resp, err := handler(ctx, env, fs.Args())
+	// 形态自行解析其专属 flags（含 --json）；Run 只负责按契约收口输出。
+	resp, err := handler(ctx, env, rest)
 	if err != nil {
 		return fail(env, rest, &ErrorInfo{Code: "command_failed", Message: err.Error()})
 	}
-	if *jsonOut {
+	if resp == nil {
+		return 0 // 形态已自行处理输出（如常驻服务）
+	}
+	if hasJSONFlag(rest) {
 		if err := writeSuccess(env.Stdout, resp); err != nil {
 			return 1
 		}
