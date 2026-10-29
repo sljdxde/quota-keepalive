@@ -392,6 +392,27 @@ func TestSourceFailureHandling(t *testing.T) {
 	}
 }
 
+func TestManagedSourceRecoversAfterSuccessfulRefresh(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	_ = svc.Discover(ctx, "workbuddy-cn", discovered()[:1])
+
+	if err := svc.MarkSourceFailure(ctx, "workbuddy-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkSourceHealthy(ctx, "workbuddy-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	acc, err := svc.Get(ctx, "workbuddy-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acc.Sources) != 1 || acc.Sources[0].Health != HealthHealthy {
+		t.Errorf("刷新成功后受管来源应恢复健康，实际 %+v", acc.Sources)
+	}
+}
+
 func TestFailureIsolatedPerAccount(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()

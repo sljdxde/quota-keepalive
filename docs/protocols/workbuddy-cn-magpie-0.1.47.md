@@ -34,6 +34,21 @@
 - 身份缺失或不一致：不创建账号或来源，状态为 `failed`。
 - 验证阶段绝不调用 `/v2/billing/meter/checkin-activity-status` 或 `/v2/billing/meter/daily-checkin`。
 
+## 受管来源刷新
+
+受管来源的 access token 距离到期不足 60 秒时，在业务请求前刷新；业务请求收到 401 时也走同一条刷新路径，并且只重试原请求一次。
+
+1. `POST /v2/plugin/auth/token/refresh`，请求体为 `{}`。
+2. 携带 `X-Refresh-Token`、`X-Auth-Refresh-Source: plugin`、`X-Domain`；企业身份另带 `X-Enterprise-Id` 与 `X-Tenant-Id`。
+3. 刷新成功必须返回非空 `accessToken`；返回的 `refreshToken`、到期时间、`domain` 和 `tokenType` 非空时覆盖旧值，否则保留旧值。
+4. 新 token bundle 只写 QKA 自己的 Keychain/受保护文件凭据存储，不写 WorkBuddy App 的登录文件，也不回写目标应用。
+5. 同一 refresh token 的并发刷新必须去重；刷新结果安全持久化后才能用于业务请求。
+6. HTTP 401/403、业务码 `12153`、`invalid_grant`、`token format error`、refresh token 已过期或不可刷新、刷新后请求再次 401，或新 token 无法安全持久化时，来源健康状态变为 `reauth_required`；账号和其他账号不受影响。
+7. 网络失败、HTTP 408/429/5xx 或暂时无法解析刷新响应属于可重试失败，不改变来源健康状态。临期刷新失败时不得继续使用旧 access token 发业务请求；业务请求收到 401 后的刷新可重试失败也不得误标为需要重新登录。
+8. 用户重新完成官方浏览器登录并通过只读验证后，同一账号与同一来源恢复 `healthy`，不得创建重复账号。
+
+刷新成功或业务请求成功都不能单独证明登录态永久有效；下一次请求仍需按到期时间和 401 规则重新判断。
+
 QKA 在受控测试中允许 `127.0.0.1` 的 HTTP 假目标；安装态使用腾讯官方 HTTPS API。动态 `authUrl` 的主机不在本地硬编码，界面只显示去掉查询参数的官方 origin。
 
 完整 token、refresh token、uid、手机号和企业身份只写入 QKA 的待验证或受管凭据存储（Keychain 优先，0600 文件回退），不进入数据库、日志、错误、MCP 或 UI。升级上游插件协议前必须先补受控假目标对照测试并更新本基线。
