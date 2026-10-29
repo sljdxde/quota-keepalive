@@ -1,0 +1,28 @@
+{
+  "id": "doubao-work",
+  "name": "豆包工作",
+  "version": "1.0.0",
+  "entry": "index.mjs",
+  "capabilities": ["discover", "checkin"],
+  "needs": ["http.outbound", "log.write", "credentials.resolve"],
+  "actions": [
+    {
+      "op": "accounts.discover",
+      "effects": {
+        "accessesNetwork": false,
+        "mutatesTarget": false,
+        "idempotent": true
+      }
+    },
+    {
+      "op": "checkin.run",
+      "effects": {
+        "accessesNetwork": true,
+        "mutatesTarget": true,
+        "idempotent": false
+      }
+    }
+  ],
+  "dayRule": { "tz": "Asia/Shanghai" },
+  "compatibility": { "qka": ">=1.0.0" }
+}
