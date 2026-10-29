@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; padding: 12px; width: 300px;
+         background: #1e1e1e; color: #e6e6e6; font-size: 13px; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .acct { padding: 6px 0; border-top: 1px solid #333; }
+  .state { float: right; }
+  .state.failed { color: #ff5f57; }
+  .state.ok { color: #30d158; }
+  .state.pending { color: #ffd60a; }
+  .meta { color: #999; font-size: 11px; margin-top: 4px; }
+  button { margin-top: 10px; width: 100%; padding: 6px; border: 0; border-radius: 6px;
+           background: #0a84ff; color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1>qka</h1>
+  <div id="accounts"></div>
+  <div class="meta" id="lastInvocation"></div>
+  <button id="run">立即执行</button>
+
+<script>
+  function renderStatus(view) {
+    const box = document.getElementById("accounts");
+    box.innerHTML = "";
+    (view.accounts || []).forEach(function (a) {
+      const div = document.createElement("div");
+      div.className = "acct";
+      const state = (a.operations[0] && a.operations[0].state) || "pending";
+      const cls = state.indexOf("failed") >= 0 ? "failed"
+                : state.indexOf("confirmed") >= 0 || state.indexOf("completed") >= 0 ? "ok"
+                : "pending";
+      div.innerHTML = a.display_name + '<span class="state ' + cls + '">' + state + "</span>";
+      box.appendChild(div);
+    });
+    document.getElementById("lastInvocation").textContent =
+      "最近调用: " + (view.last_invocation || "无");
+  }
+
+  async function refresh() {
+    if (window.qka && window.qka.status) {
+      renderStatus(await window.qka.status());
+    }
+  }
+
+  document.getElementById("run").onclick = async function () {
+    if (window.qka && window.qka.run) {
+      // 立即执行走同一服务链（内部先预演）。
+      await window.qka.run();
+      await refresh();
+    }
+  };
+
+  refresh();
+</script>
+</body>
+</html>

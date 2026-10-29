@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; height: 100vh; display: flex;
+         flex-direction: column; }
+  header { display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid #ddd;
+           -webkit-app-region: drag; }
+  header .spacer { flex: 1; }
+  #settings { -webkit-app-region: no-drag; border: 0; background: none; cursor: pointer;
+              font-size: 16px; }
+  nav { display: flex; border-bottom: 1px solid #ddd; }
+  nav button { flex: 1; padding: 10px; border: 0; background: none; cursor: pointer;
+               border-bottom: 2px solid transparent; }
+  nav button.active { border-bottom-color: #0a84ff; color: #0a84ff; }
+  main { flex: 1; padding: 16px; overflow: auto; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+</style>
+</head>
+<body>
+  <header>
+    <strong>qka</strong>
+    <span class="spacer"></span>
+    <button id="settings" title="设置">&#9881;</button>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="apps" class="active">应用管理</button>
+    <button data-tab="logs">日志</button>
+    <button data-tab="accounts">账号管理</button>
+    <button data-tab="agent">Agent 接入</button>
+    <button data-tab="plugins">插件</button>
+  </nav>
+
+  <main>
+    <section id="apps" class="tab active">应用管理（占位）</section>
+    <section id="logs" class="tab">日志（占位）</section>
+    <section id="accounts" class="tab">账号管理（占位）</section>
+    <section id="agent" class="tab">Agent 接入（占位）</section>
+    <section id="plugins" class="tab">插件（占位）</section>
+  </main>
+
+<script>
+  // 五页签顺序固定，由 DOM 顺序决定，不随运行时重排。
+  const tabs = document.querySelectorAll("#tabs button");
+  tabs.forEach(function (btn) {
+    btn.onclick = function () {
+      tabs.forEach(function (b) { b.classList.remove("active"); });
+      document.querySelectorAll(".tab").forEach(function (t) {
+        t.classList.remove("active");
+      });
+      btn.classList.add("active");
+      document.getElementById(btn.dataset.tab).classList.add("active");
+    };
+  });
+
+  document.getElementById("settings").onclick = function () {
+    if (window.qka && window.qka.openSettings) {
+      window.qka.openSettings();
+    }
+  };
+</script>
+</body>
+</html>
