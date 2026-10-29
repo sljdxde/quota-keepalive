@@ -135,9 +135,27 @@ func (s *BoundService) AccountsDiscover(target string) error {
 	return s.deps.Accounts.Discover(context.Background(), target)
 }
 
-// AccountsBeginLogin 发起官方登录。
-func (s *BoundService) AccountsBeginLogin(target string) error {
-	return s.deps.Accounts.BeginLogin(context.Background(), target)
+// AccountsBeginLogin 发起官方登录并返回可见状态。
+func (s *BoundService) AccountsBeginLogin(target string) (json.RawMessage, error) {
+	view, err := s.deps.Accounts.BeginLogin(context.Background(), target)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+// AccountsLoginStatus 返回当前或最近一次官方登录状态。
+func (s *BoundService) AccountsLoginStatus(target string) (json.RawMessage, error) {
+	return json.Marshal(s.deps.Accounts.LoginStatus(context.Background(), target))
+}
+
+// AccountsCancelLogin 取消进行中的官方登录。
+func (s *BoundService) AccountsCancelLogin(target string) (json.RawMessage, error) {
+	view, err := s.deps.Accounts.CancelLogin(context.Background(), target)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
 }
 
 // AccountsImportSource 导入只读来源。

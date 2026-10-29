@@ -7,46 +7,16 @@ import (
 	"sync"
 
 	"qka/internal/autostart"
+	"qka/internal/capabilities"
 	"qka/internal/gui"
 	"qka/internal/install"
-	"qka/internal/login"
 	"qka/internal/logtail"
 	"qka/internal/settings"
+	"qka/internal/workbuddy"
 )
-
-// targetInfo 是单个目标应用的开发态目录（基址与官方登录入口）。
-// 与 adapters/* 中的 example.com 基址一致，用于受控假目标；真实站点由发布配置覆盖。
-type targetInfo struct {
-	baseURL  string
-	loginURL string
-}
-
-var targetCatalog = map[string]targetInfo{
-	"workbuddy-cn": {"https://workbuddy.example.com", "https://workbuddy.example.com/login"},
-	"qoder-cn":     {"https://qoder.example.com", "https://qoder.example.com/login"},
-	"qoder":        {"https://qoder-intl.example.com", "https://qoder-intl.example.com/login"},
-	"doubao-work":  {"https://work.doubao.example.com", "https://work.doubao.example.com/login"},
-}
 
 // targetOrder 是 V1 目标的推进/展示顺序（与设计文档 §V1 一致）。
 var targetOrder = []string{"workbuddy-cn", "qoder-cn", "qoder", "doubao-work"}
-
-// loginEntries 实现 gui.LoginEntries：返回目标的官方登录入口。
-type loginEntries struct{}
-
-func (loginEntries) Entry(target string) (login.Entry, bool) {
-	info, ok := targetCatalog[target]
-	if !ok {
-		return login.Entry{}, false
-	}
-	return login.Entry{
-		Target:     target,
-		Kind:       login.KindHTTPS,
-		Location:   info.loginURL,
-		Purpose:    "建立 QKA 受管登录来源（只读校验，不接收密码/验证码）",
-		TimeoutSec: 120,
-	}, true
-}
 
 // guiState 持有 GUI 运行期可变状态（设置、开发者模式、受限加载审计）。
 type guiState struct {
@@ -54,7 +24,6 @@ type guiState struct {
 
 	mu       sync.Mutex
 	settings *settings.Settings
-	login    *login.Service
 	devMode  bool
 	audit    []gui.AuditLine
 }
@@ -67,25 +36,16 @@ func (a *App) GUI() *gui.App {
 		st = settings.Default()
 	}
 
-	// 登录服务的官方域名白名单（与目标目录一致）。
-	var allowed []string
-	for _, info := range targetCatalog {
-		allowed = append(allowed, hostOf(info.loginURL))
-	}
-
 	state := &guiState{
 		app:      a,
 		settings: st,
-		login:    login.NewService(allowed),
 		audit:    []gui.AuditLine{},
 	}
 
 	bridge := gui.NewAccountBridge(
 		a.accounts,
-		state.login,
 		a, // app 实现 gui.HostDiscoverer
-		loginEntries{},
-		openURL,
+		a.workBuddyLoginService(),
 	)
 
 	deps := gui.Deps{
@@ -103,6 +63,25 @@ func (a *App) GUI() *gui.App {
 		SetDevMode:        state.setDevMode,
 	}
 	return gui.New(deps)
+}
+
+func (a *App) workBuddyLoginService() *workbuddy.LoginService {
+	return workbuddy.NewLoginService(workbuddy.LoginConfig{
+		BaseURL: workBuddyLoginBaseURL(a.cfg.BaseURLs),
+		PendingStore: capabilities.NewLoginCredentialStore(
+			capabilities.NewKeychainStore(),
+			capabilities.NewFileSecretStore(a.cfg.ConfigDir),
+		),
+		OpenBrowser: openURL,
+		Now:         a.now,
+	})
+}
+
+func workBuddyLoginBaseURL(overrides map[string]string) string {
+	if baseURL := overrides["workbuddy-cn"]; baseURL != "" {
+		return baseURL
+	}
+	return workbuddy.DefaultBaseURL
 }
 
 func (s *guiState) currentSettings() *settings.Settings {
@@ -202,18 +181,4 @@ func (s *guiState) setDevMode(enabled bool) error {
 // openURL 用系统默认浏览器打开官方登录页。
 func openURL(raw string) error {
 	return exec.Command("open", raw).Run()
-}
-
-func hostOf(rawURL string) string {
-	const prefix = "https://"
-	rest := rawURL
-	if len(rawURL) > len(prefix) && rawURL[:len(prefix)] == prefix {
-		rest = rawURL[len(prefix):]
-	}
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == '/' {
-			return rest[:i]
-		}
-	}
-	return rest
 }

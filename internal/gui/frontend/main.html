@@ -31,6 +31,18 @@
   .acct .row { display: flex; align-items: center; justify-content: space-between; }
   .src { font-size: 12px; color: #666; margin-top: 6px; display: flex;
          align-items: center; gap: 6px; }
+  .login-status { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #d8d8d8;
+                  border-radius: 8px; background: rgba(127,127,127,0.06); }
+  .login-status[hidden] { display: none; }
+  .login-status .row { display: flex; align-items: center; justify-content: space-between;
+                       gap: 8px; }
+  .login-status p { margin: 6px 0 0; font-size: 13px; }
+  .login-status small { display: block; margin-top: 6px; color: #777; }
+  .login-status.pending_verification { border-color: #0ea371; }
+  .login-status.failed, .login-status.expired { border-color: #ff5f57; }
+  #login-cancel { padding: 4px 8px; border: 1px solid #999; border-radius: 6px;
+                  background: transparent; color: inherit; cursor: pointer; }
+  #login-cancel[hidden] { display: none; }
   .danger { color: #ff5f57; border: 0; background: none; cursor: pointer; }
   section button { padding: 6px 10px; border: 1px solid #0ea371; border-radius: 6px;
                    background: #0ea371; color: #fff; cursor: pointer; }
@@ -101,6 +113,14 @@
           <option value="qoder">Qoder</option>
           <option value="doubao-work">豆包工作</option>
         </select>
+      </div>
+      <div id="login-status" class="login-status" role="status" aria-live="polite" hidden>
+        <div class="row">
+          <strong id="login-status-title">官方登录</strong>
+          <button id="login-cancel" type="button" hidden>取消登录</button>
+        </div>
+        <p id="login-status-message"></p>
+        <small id="login-status-origin"></small>
       </div>
       <div id="accounts-body"></div>
     </section>
@@ -244,13 +264,81 @@
   }
 
   // 账号页顶部动作：发现 / 官方登录添加。
+  const loginStatusLabel = {
+    idle: "官方登录",
+    pending: "等待官方登录",
+    pending_verification: "授权已取得，等待只读验证",
+    cancelled: "官方登录已取消",
+    expired: "官方登录已超时",
+    failed: "官方登录失败",
+  };
+  let loginTimer = null;
+
+  function stopLoginPolling() {
+    if (loginTimer !== null) {
+      clearTimeout(loginTimer);
+      loginTimer = null;
+    }
+  }
+
+  function renderLogin(view) {
+    stopLoginPolling();
+    const box = document.getElementById("login-status");
+    box.hidden = false;
+    box.className = "login-status " + (view.status || "");
+    document.getElementById("login-status-title").textContent =
+      loginStatusLabel[view.status] || "官方登录";
+    document.getElementById("login-status-message").textContent = view.message || "";
+    const origin = document.getElementById("login-status-origin");
+    origin.textContent = view.official_origin ? "官方入口：" + view.official_origin : "";
+    const cancel = document.getElementById("login-cancel");
+    cancel.hidden = !view.can_cancel;
+    cancel.dataset.target = view.target || "";
+
+    if (view.status === "pending") {
+      loginTimer = setTimeout(function () { refreshLogin(view.target); }, 1000);
+    }
+  }
+
+  async function refreshLogin(target) {
+    if (!target) return;
+    try {
+      renderLogin(asJSON(await Bound.AccountsLoginStatus(target)));
+    } catch (_) {
+      renderLogin({
+        target: target,
+        status: "failed",
+        message: "无法读取官方登录状态，请重试；未创建账号",
+        can_cancel: false,
+      });
+    }
+  }
+
   document.querySelector('[data-act="discover"]').onclick = function () {
     const target = document.getElementById("target-select").value;
     Bound.AccountsDiscover(target).then(renderAccounts);
   };
-  document.querySelector('[data-act="login"]').onclick = function () {
+  document.querySelector('[data-act="login"]').onclick = async function () {
     const target = document.getElementById("target-select").value;
-    Bound.AccountsBeginLogin(target);
+    try {
+      renderLogin(asJSON(await Bound.AccountsBeginLogin(target)));
+    } catch (_) {
+      renderLogin({
+        target: target,
+        status: "failed",
+        message: "无法发起官方登录，请重试；未创建账号",
+        can_cancel: false,
+      });
+    }
+  };
+  document.getElementById("login-cancel").onclick = async function () {
+    const target = this.dataset.target;
+    if (!target) return;
+    try {
+      renderLogin(asJSON(await Bound.AccountsCancelLogin(target)));
+    } catch (_) {
+      await refreshLogin(target);
+    }
   };
 
   // 日志页：四类筛选 + 游标加载更多。
