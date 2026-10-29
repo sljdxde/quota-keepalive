@@ -134,9 +134,15 @@ WHERE target = ? AND account_id = ? AND id = ?`,
 
 // List 返回指定目标的全部账号（含来源）。
 func (s *Service) List(ctx context.Context, target string) ([]Account, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, display_name, masked_identity, enabled FROM accounts WHERE target = ? ORDER BY id`,
-		target)
+	// target 为空时列出所有目标应用的账号。
+	query := `SELECT target, id, display_name, masked_identity, enabled FROM accounts`
+	args := []any{}
+	if target != "" {
+		query += ` WHERE target = ?`
+		args = append(args, target)
+	}
+	query += ` ORDER BY target, id`
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -146,12 +152,11 @@ func (s *Service) List(ctx context.Context, target string) ([]Account, error) {
 	for rows.Next() {
 		var a Account
 		var enabled int
-		a.Target = target
-		if err := rows.Scan(&a.ID, &a.DisplayName, &a.MaskedIdentity, &enabled); err != nil {
+		if err := rows.Scan(&a.Target, &a.ID, &a.DisplayName, &a.MaskedIdentity, &enabled); err != nil {
 			return nil, err
 		}
 		a.Enabled = enabled == 1
-		srcs, err := s.loadSources(ctx, target, a.ID)
+		srcs, err := s.loadSources(ctx, a.Target, a.ID)
 		if err != nil {
 			return nil, err
 		}

@@ -17,6 +17,29 @@
   main { flex: 1; padding: 16px; overflow: auto; }
   .tab { display: none; }
   .tab.active { display: block; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+  .health.reauth_required { color: #ff9f0a; }
+  .health.disabled { color: #ff5f57; }
+  .health.healthy { color: #30d158; }
+  .result.failed { color: #ff5f57; }
+  .result.confirmed { color: #30d158; }
+  .result.provisional { color: #ffd60a; }
+  .acct { border: 1px solid #eee; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .acct .row { display: flex; align-items: center; justify-content: space-between; }
+  .src { font-size: 12px; color: #666; margin-top: 6px; display: flex;
+         align-items: center; gap: 6px; }
+  .danger { color: #ff5f57; border: 0; background: none; cursor: pointer; }
+  section button { padding: 6px 10px; border: 1px solid #0a84ff; border-radius: 6px;
+                   background: #0a84ff; color: #fff; cursor: pointer; }
+  select { padding: 6px; border: 1px solid #ccc; border-radius: 6px; background: inherit;
+           color: inherit; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1e1e1e; color: #e6e6e6; }
+    th, td { border-bottom-color: #333; }
+    .acct { border-color: #333; }
+    .src { color: #999; }
+  }
 </style>
 </head>
 <body>
@@ -35,17 +58,35 @@
   </nav>
 
   <main>
-    <section id="apps" class="tab active">应用管理（占位）</section>
+    <section id="apps" class="tab active">
+      <table>
+        <thead><tr><th>应用</th><th>启用</th><th>健康</th><th>账号</th><th>今日</th><th>最近调用</th></tr></thead>
+        <tbody id="apps-body"></tbody>
+      </table>
+    </section>
     <section id="logs" class="tab">日志（占位）</section>
-    <section id="accounts" class="tab">账号管理（占位）</section>
+    <section id="accounts" class="tab">
+      <div style="margin-bottom:10px; display:flex; gap:8px;">
+        <button data-act="discover">发现账号</button>
+        <button data-act="login">官方登录添加</button>
+        <select id="target-select" style="flex:1;">
+          <option value="workbuddy-cn">WorkBuddy CN</option>
+          <option value="qoder-cn">Qoder CN</option>
+          <option value="qoder">Qoder</option>
+          <option value="doubao-work">豆包工作</option>
+        </select>
+      </div>
+      <div id="accounts-body"></div>
+    </section>
     <section id="agent" class="tab">Agent 接入（占位）</section>
     <section id="plugins" class="tab">插件（占位）</section>
   </main>
 
 <script type="module">
+  import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
   import { Events } from "/wails/runtime.js";
 
-  // 五页签顺序固定，由 DOM 顺序决定，不随运行时重排。
+  // 五页签切换（顺序固定，由 DOM 决定）。
   const tabs = document.querySelectorAll("#tabs button");
   tabs.forEach(function (btn) {
     btn.onclick = function () {
@@ -58,10 +99,92 @@
     };
   });
 
-  // 齿轮经事件打开独立设置窗口（不占用第六个一级页签）。
   document.getElementById("settings").onclick = function () {
     Events.Emit("open-settings");
   };
+
+  // 应用管理页。
+  async function renderApps() {
+    const rows = JSON.parse(await Bound.AppsList());
+    const body = document.getElementById("apps-body");
+    body.innerHTML = "";
+    rows.forEach(function (r) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + r.target + "</td>" +
+        "<td>" + (r.enabled ? "是" : "否") + "</td>" +
+        '<td class="health ' + r.aggregate_health + '">' + r.aggregate_health + "</td>" +
+        "<td>" + r.account_count + "</td>" +
+        '<td class="result ' + r.today_result + '">' + r.today_result + "</td>" +
+        "<td>" + (r.last_invocation || "无") + "</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  // 账号管理页（无任何密码/验证码/扫码输入）。
+  async function renderAccounts() {
+    const list = JSON.parse(await Bound.AccountsList());
+    const body = document.getElementById("accounts-body");
+    body.innerHTML = "";
+    list.forEach(function (a) {
+      const box = document.createElement("div");
+      box.className = "acct";
+
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("span");
+      name.textContent = a.display_name + "（" + a.target + "）";
+      const sw = document.createElement("input");
+      sw.type = "checkbox";
+      sw.checked = a.enabled;
+      sw.onchange = function () {
+        Bound.AccountsSetEnabled(a.target, a.id, sw.checked);
+      };
+      row.appendChild(name);
+      row.appendChild(sw);
+      box.appendChild(row);
+
+      (a.sources || []).forEach(function (src) {
+        const s = document.createElement("div");
+        s.className = "src";
+        const pin = document.createElement("input");
+        pin.type = "checkbox";
+        pin.title = "优先使用此来源";
+        pin.checked = src.pinned;
+        pin.onchange = function () {
+          Bound.AccountsPinSource(a.target, a.id, src.id, pin.checked);
+        };
+        const text = document.createElement("span");
+        text.textContent = src.kind + " · " + src.health + (src.read_only ? " · 只读" : "");
+        s.appendChild(pin);
+        s.appendChild(text);
+        box.appendChild(s);
+      });
+
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "删除";
+      del.onclick = function () {
+        Bound.AccountsDelete(a.target, a.id).then(renderAccounts);
+      };
+      box.appendChild(del);
+
+      body.appendChild(box);
+    });
+  }
+
+  // 账号页顶部动作：发现 / 官方登录添加。
+  document.querySelector('[data-act="discover"]').onclick = function () {
+    const target = document.getElementById("target-select").value;
+    Bound.AccountsDiscover(target).then(renderAccounts);
+  };
+  document.querySelector('[data-act="login"]').onclick = function () {
+    const target = document.getElementById("target-select").value;
+    Bound.AccountsBeginLogin(target);
+  };
+
+  renderApps();
+  renderAccounts();
 </script>
 </body>
 </html>
