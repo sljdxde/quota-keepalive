@@ -64,7 +64,27 @@
         <tbody id="apps-body"></tbody>
       </table>
     </section>
-    <section id="logs" class="tab">日志（占位）</section>
+    <section id="logs" class="tab">
+      <div style="margin-bottom:10px; display:flex; gap:6px; flex-wrap:wrap;">
+        <input id="log-target" placeholder="目标应用" style="width:120px;">
+        <input id="log-account" placeholder="账号" style="width:100px;">
+        <input id="log-operation" placeholder="操作" style="width:110px;">
+        <select id="log-state" style="width:140px;">
+          <option value="">状态（全部）</option>
+          <option value="signed_confirmed">signed_confirmed</option>
+          <option value="signed_provisional">signed_provisional</option>
+          <option value="completed">completed</option>
+          <option value="failed_retryable">failed_retryable</option>
+          <option value="failed_final">failed_final</option>
+        </select>
+        <button id="log-query">查询</button>
+      </div>
+      <table>
+        <thead><tr><th>时间</th><th>目标</th><th>账号</th><th>操作</th><th>状态</th><th>消息</th></tr></thead>
+        <tbody id="logs-body"></tbody>
+      </table>
+      <div style="margin-top:8px;"><button id="logs-more">加载更多</button></div>
+    </section>
     <section id="accounts" class="tab">
       <div style="margin-bottom:10px; display:flex; gap:8px;">
         <button data-act="discover">发现账号</button>
@@ -78,7 +98,15 @@
       </div>
       <div id="accounts-body"></div>
     </section>
-    <section id="agent" class="tab">Agent 接入（占位）</section>
+    <section id="agent" class="tab">
+      <div style="margin-bottom:10px; padding:8px; border-radius:6px; background:rgba(127,127,127,0.12);">
+        计划由宿主保存，qka 不提供计划编辑器；宿主内部计划对 qka 不可观察（not_observable），因此不展示「计划已激活」。
+      </div>
+      <table>
+        <thead><tr><th>宿主</th><th>配对</th><th>连通</th><th>最近调用</th><th>在宿主界面创建计划的指引</th></tr></thead>
+        <tbody id="agent-body"></tbody>
+      </table>
+    </section>
     <section id="plugins" class="tab">插件（占位）</section>
   </main>
 
@@ -183,8 +211,62 @@
     Bound.AccountsBeginLogin(target);
   };
 
+  // 日志页：四类筛选 + 游标加载更多。
+  let logCursor = 0;
+  function appendLogs(reset) {
+    if (reset) {
+      logCursor = 0;
+      document.getElementById("logs-body").innerHTML = "";
+    }
+    Bound.LogsTail(
+      document.getElementById("log-target").value,
+      document.getElementById("log-account").value,
+      document.getElementById("log-operation").value,
+      document.getElementById("log-state").value,
+      50, logCursor
+    ).then(function (raw) {
+      const page = JSON.parse(raw);
+      const body = document.getElementById("logs-body");
+      (page.entries || []).forEach(function (e) {
+        const tr = document.createElement("tr");
+        [e.ts, e.target, e.account_id, e.operation, e.state, e.message].forEach(function (v) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      logCursor = page.next_cursor || 0;
+      document.getElementById("logs-more").style.display = logCursor ? "" : "none";
+    });
+  }
+  document.getElementById("log-query").onclick = function () { appendLogs(true); };
+  document.getElementById("logs-more").onclick = function () { appendLogs(false); };
+
+  // Agent 接入页：配对/连通/最近调用/计划指引。
+  function renderAgent() {
+    Bound.AgentStatus().then(function (raw) {
+      const view = JSON.parse(raw);
+      const body = document.getElementById("agent-body");
+      body.innerHTML = "";
+      (view.hosts || []).forEach(function (h) {
+        const tr = document.createElement("tr");
+        [h.label, h.paired ? "已配对" : "未配对",
+         h.connected ? "已连通" : "未连通",
+         h.last_invocation || "—", h.schedule_guide].forEach(function (v) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    });
+  }
+
   renderApps();
   renderAccounts();
+  appendLogs(true);
+  renderAgent();
 </script>
 </body>
 </html>
