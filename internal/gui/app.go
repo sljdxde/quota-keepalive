@@ -14,10 +14,11 @@ var frontendFS embed.FS
 
 // App 持有 Wails 应用与运行期窗口。
 type App struct {
-	wails *application.App
-	tray  *application.SystemTray
-	panel *application.WebviewWindow
-	main  *application.WebviewWindow
+	wails    *application.App
+	tray     *application.SystemTray
+	panel    *application.WebviewWindow
+	main     *application.WebviewWindow
+	settings *application.WebviewWindow
 }
 
 func assetHandler() http.Handler {
@@ -62,6 +63,21 @@ func New(deps Deps) *App {
 		URL:    "/main.html",
 	})
 
+	// 设置窗口：独立齿轮入口，初始隐藏。
+	settings := wails.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:  "settings",
+		Title: "设置",
+		Width: 400, Height: 320,
+		Hidden: true,
+		URL:    "/settings.html",
+	})
+
+	// 齿轮入口经事件打开设置窗口（不占用第六个一级页签）。
+	wails.Event.On("open-settings", func(*application.CustomEvent) {
+		settings.Show()
+		settings.Focus()
+	})
+
 	// 托盘菜单。
 	menu := application.NewMenu()
 	menu.Add("打开主窗口").OnClick(func(*application.Context) {
@@ -80,7 +96,7 @@ func New(deps Deps) *App {
 	tray.AttachWindow(panel)
 	tray.SetMenu(menu)
 
-	return &App{wails: wails, tray: tray, panel: panel, main: main}
+	return &App{wails: wails, tray: tray, panel: panel, main: main, settings: settings}
 }
 
 // Run 启动 GUI 事件循环。
