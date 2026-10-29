@@ -183,3 +183,73 @@ func TestWorkBuddyVerificationSinkDoesNotCreateAccountWhenCredentialPersistFails
 		t.Errorf("凭据持久化失败时不得创建账号或来源: %+v", list)
 	}
 }
+
+func TestWorkBuddyVerificationSinkRestoresExistingCredentialWhenAccountWriteFails(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	acct := accounts.NewService(st.DB())
+	file := newAppSecretStore()
+	creds := capabilities.NewCredentialService(
+		failingAppSecretStore{},
+		file,
+		capabilities.Grant{
+			"credentials.managed": true,
+			"credentials.resolve": true,
+		},
+		nil,
+	)
+	verified := workbuddy.VerifiedAccount{
+		Target: "workbuddy-cn", AccountID: "wb_existing", SourceID: "wbm_existing",
+		DisplayName: "****1234", MaskedIdentity: "****1234",
+	}
+	ctx := context.Background()
+	if err := acct.Discover(ctx, verified.Target, []accounts.DiscoveredAccount{{
+		ID: verified.AccountID, DisplayName: verified.DisplayName,
+		MaskedIdentity: verified.MaskedIdentity, SourceID: verified.SourceID,
+		SourceKind: accounts.KindManaged,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := acct.SetEnabled(ctx, verified.Target, verified.AccountID, true); err != nil {
+		t.Fatal(err)
+	}
+	ref := capabilities.CredentialRef{
+		Target: verified.Target, AccountID: verified.AccountID,
+		SourceID: verified.SourceID, Kind: capabilities.Managed,
+	}
+	if err := creds.Persist(ctx, ref, "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `
+CREATE TRIGGER fail_account_update
+BEFORE UPDATE ON accounts
+BEGIN
+  SELECT RAISE(ABORT, 'account update blocked');
+END;`); err != nil {
+		t.Fatal(err)
+	}
+
+	sink := newWorkBuddyVerificationSink(acct, creds)
+	err = sink.AcceptVerifiedAccount(ctx, verified, []byte(`{"access_token":"new-secret"}`))
+	if err == nil {
+		t.Fatal("账号写库失败时应返回错误")
+	}
+	got, err := creds.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatalf("旧凭据应仍可读取: %v", err)
+	}
+	if got.Secret != "old-secret" {
+		t.Errorf("账号写库失败后必须恢复旧凭据，实际 %q", got.Secret)
+	}
+	acc, err := acct.Get(ctx, verified.Target, verified.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acc.Enabled {
+		t.Error("账号写库失败不得改写已有启用状态")
+	}
+}

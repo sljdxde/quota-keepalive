@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 
 	"qka/internal/accounts"
 	"qka/internal/capabilities"
@@ -35,6 +37,19 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 		SourceID:  account.SourceID,
 		Kind:      capabilities.Managed,
 	}
+	_, getErr := s.accounts.Get(ctx, account.Target, account.AccountID)
+	existing := getErr == nil
+	if getErr != nil && !errors.Is(getErr, sql.ErrNoRows) {
+		return getErr
+	}
+
+	var oldSecret string
+	if existing {
+		if old, err := s.credentials.Resolve(ctx, ref); err == nil {
+			oldSecret = old.Secret
+		}
+	}
+
 	if err := s.credentials.Persist(ctx, ref, string(credential)); err != nil {
 		return err
 	}
@@ -46,7 +61,13 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 		SourceKind:     accounts.KindManaged,
 	}})
 	if err != nil {
-		_ = s.credentials.Delete(ctx, ref)
+		if existing && oldSecret != "" {
+			if restoreErr := s.credentials.Persist(ctx, ref, oldSecret); restoreErr != nil {
+				return fmt.Errorf("%w; 恢复旧凭据失败: %v", err, restoreErr)
+			}
+		} else if !existing {
+			_ = s.credentials.Delete(ctx, ref)
+		}
 		return err
 	}
 	return nil
