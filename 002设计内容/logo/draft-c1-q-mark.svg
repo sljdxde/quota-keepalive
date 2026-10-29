@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>qka 草稿 C1：q 字标</title>
+  <defs>
+    <mask id="m-q">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#fff"/>
+      <circle cx="28" cy="27" r="14.5" fill="#000"/>
+      <circle cx="28" cy="27" r="5.5" fill="#fff"/>
+      <path d="M38 13 V51" stroke="#000" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="currentColor" mask="url(#m-q)"/>
+</svg>

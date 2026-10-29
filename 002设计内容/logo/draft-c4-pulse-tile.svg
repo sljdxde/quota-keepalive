@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>qka 草稿 C4：心电线</title>
+  <defs>
+    <mask id="m-pulse">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#fff"/>
+      <path d="M12 32 H20 L24 20 L30 44 L35 26 L38 33 H52" stroke="#000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="currentColor" mask="url(#m-pulse)"/>
+</svg>

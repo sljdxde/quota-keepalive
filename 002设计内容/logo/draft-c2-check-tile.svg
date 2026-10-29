@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>qka 草稿 C2：负空间勾</title>
+  <defs>
+    <mask id="m-check">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#fff"/>
+      <path d="M18 33 L27 43 L46 19" stroke="#000" stroke-width="9.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </mask>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="currentColor" mask="url(#m-check)"/>
+</svg>
