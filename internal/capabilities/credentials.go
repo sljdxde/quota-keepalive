@@ -62,7 +62,7 @@ type Credential struct {
 type SecretStore interface {
 	Set(ctx context.Context, service, account, secret string) error
 	Get(ctx context.Context, service, account string) (string, error)
-Delete(ctx context.Context, service, account string) error
+	Delete(ctx context.Context, service, account string) error
 }
 
 // Clock 返回当前时间，便于注入。

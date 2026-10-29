@@ -7,10 +7,10 @@ import (
 
 func validManifest() Manifest {
 	return Manifest{
-		ID:      "qoder-cn",
-		Name:    "Qoder CN",
-		Version: "1.2.0",
-		Entry:   "./index.mjs",
+		ID:           "qoder-cn",
+		Name:         "Qoder CN",
+		Version:      "1.2.0",
+		Entry:        "./index.mjs",
 		Capabilities: []string{"accounts.discover", "checkin"},
 		Needs:        []string{"http.outbound"},
 		Actions: []Action{

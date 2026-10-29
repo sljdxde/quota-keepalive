@@ -13,14 +13,14 @@ var toolNames = []string{
 }
 
 var toolDescriptions = map[string]string{
-	"agents_list":      "列出目标应用的自描述视图（身份、能力、可用性、账号、来源）",
-	"accounts_manage":  "管理目标账号、登录态来源与来源优先级",
-	"checkin_run":      "执行一次签到或保活的每日操作",
-	"status":           "查看目标账号每日操作状态与证据",
-	"plan_validate":    "校验计划是否符合成本、幂等与效应约束",
-	"log_tail":         "读取结构化日志（含过滤与游标）",
-	"doctor_run":       "运行环境与配置自检",
-	"feed_list":        "列出活动/奖励等可订阅信息流",
+	"agents_list":     "列出目标应用的自描述视图（身份、能力、可用性、账号、来源）",
+	"accounts_manage": "管理目标账号、登录态来源与来源优先级",
+	"checkin_run":     "执行一次签到或保活的每日操作",
+	"status":          "查看目标账号每日操作状态与证据",
+	"plan_validate":   "校验计划是否符合成本、幂等与效应约束",
+	"log_tail":        "读取结构化日志（含过滤与游标）",
+	"doctor_run":      "运行环境与配置自检",
+	"feed_list":       "列出活动/奖励等可订阅信息流",
 }
 
 func toolDefinitions() []toolDef {

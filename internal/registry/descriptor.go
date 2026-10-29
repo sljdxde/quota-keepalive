@@ -38,23 +38,23 @@ type AccountView struct {
 
 // ActionView 是自描述中的操作及其效应声明。
 type ActionView struct {
-	Op      string             `json:"op"`
+	Op      string              `json:"op"`
 	Effects adapterhost.Effects `json:"effects"`
 }
 
 // AgentDescriptor 是目标应用的自描述对象。
 type AgentDescriptor struct {
-	ID                string        `json:"id"`
-	Name              string        `json:"name"`
-	Version           string        `json:"version"`
-	Capabilities      []string      `json:"capabilities"`
-	Needs             []string      `json:"needs"`
-	Actions           []ActionView  `json:"actions"`
-	Enabled           bool          `json:"enabled"`
-	Available         bool          `json:"available"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Version           string            `json:"version"`
+	Capabilities      []string          `json:"capabilities"`
+	Needs             []string          `json:"needs"`
+	Actions           []ActionView      `json:"actions"`
+	Enabled           bool              `json:"enabled"`
+	Available         bool              `json:"available"`
 	UnavailableReason UnavailableReason `json:"unavailable_reason,omitempty"`
 	// ScheduleOwner 是固定职责说明：调度由 host 负责。
-	ScheduleOwner string `json:"schedule_owner"`
+	ScheduleOwner string        `json:"schedule_owner"`
 	Accounts      []AccountView `json:"accounts"`
 	// LastInvocationAt 仅为观测，不证明未来计划。
 	LastInvocationAt string `json:"last_invocation_at,omitempty"`

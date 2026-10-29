@@ -26,7 +26,7 @@ func TestKeychainGetSuccess(t *testing.T) {
 
 func TestKeychainGetNotFound(t *testing.T) {
 	k := NewKeychainStore().withRunner(runnerReturning(execResult{
-		stderr: []byte("security: SecKeychainSearchCopyNext: The specified item could not be found"),
+		stderr:   []byte("security: SecKeychainSearchCopyNext: The specified item could not be found"),
 		exitCode: 44}))
 	if _, err := k.Get(context.Background(), "qka", "acct"); !errors.Is(err, ErrSecretNotFound) {
 		t.Fatalf("退出码 44 应映射未找到，实际 %v", err)

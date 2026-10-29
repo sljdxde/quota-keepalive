@@ -33,4 +33,4 @@ func (b *BoundedBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *BoundedBuffer) String() string { return b.buf.String() }
-func (b *BoundedBuffer) Len() int      { return b.buf.Len() }
+func (b *BoundedBuffer) Len() int       { return b.buf.Len() }

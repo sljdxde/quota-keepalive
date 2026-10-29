@@ -42,10 +42,10 @@ func TestReadRoutes(t *testing.T) {
 	ctx := context.Background()
 
 	cases := map[string]string{
-		"qka://status/today":       `{"today":"ok"}`,
-		"qka://agents":             `[{"id":"a"}]`,
-		"qka://accounts":           `[{"id":"u1"}]`,
-		"qka://host-integration":   "",
+		"qka://status/today":     `{"today":"ok"}`,
+		"qka://agents":           `[{"id":"a"}]`,
+		"qka://accounts":         `[{"id":"u1"}]`,
+		"qka://host-integration": "",
 	}
 	for uri, want := range cases {
 		data, err := Read(ctx, p, uri)
