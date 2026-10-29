@@ -14,7 +14,7 @@
   nav button { flex: 1; padding: 10px; border: 0; background: none; cursor: pointer;
                border-bottom: 2px solid transparent; }
   nav button.active { border-bottom-color: #0ea371; color: #0ea371; }
-  main { flex: 1; padding: 16px; overflow: auto; }
+  main { flex: 1; padding: 16px; overflow: auto; overflow-x: hidden; }
   .tab { display: none; }
   .tab.active { display: block; }
   table { width: 100%; border-collapse: collapse; }
@@ -52,6 +52,16 @@
   .accounts-message.success { color: #0a8f63; }
   .accounts-message.pending { color: #777; }
   .accounts-message[hidden] { display: none; }
+  .empty-accounts { padding: 18px 12px; border: 1px dashed #bbb; border-radius: 8px;
+                    color: #777; text-align: center; font-size: 13px; }
+  .acct .state { margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 12px; }
+  .acct .state .op { margin-bottom: 4px; }
+  .acct .state .hint { color: #777; margin-top: 2px; }
+  .acct .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .acct .actions button { padding: 4px 8px; border-radius: 6px; }
+  .acct .actions button.secondary { border: 1px solid #999; background: transparent;
+                                    color: inherit; }
+  .acct .actions button[hidden] { display: none; }
   .danger { color: #ff5f57; border: 0; background: none; cursor: pointer; }
   button:disabled { cursor: wait; opacity: 0.55; }
   section button { padding: 6px 10px; border: 1px solid #0ea371; border-radius: 6px;
@@ -63,6 +73,7 @@
     th, td { border-bottom-color: #333; }
     .acct { border-color: #333; }
     .src { color: #999; }
+    .acct .state { border-top-color: #333; }
   }
 </style>
 </head>
@@ -117,12 +128,7 @@
       <div style="margin-bottom:10px; display:flex; gap:8px;">
         <button data-act="discover">发现账号</button>
         <button data-act="login">官方登录添加</button>
-        <select id="target-select" style="flex:1;">
-          <option value="workbuddy-cn">WorkBuddy CN</option>
-          <option value="qoder-cn">Qoder CN</option>
-          <option value="qoder">Qoder</option>
-          <option value="doubao-work">豆包工作</option>
-        </select>
+        <span style="align-self:center; color:#777; font-size:13px;">WorkBuddy CN</span>
       </div>
       <p id="accounts-message" class="accounts-message" role="alert" hidden></p>
       <div id="login-status" class="login-status" role="status" aria-live="polite" hidden>
@@ -228,19 +234,35 @@
   // 账号管理页（无任何密码/验证码/扫码输入）。
   const sourceKindLabel = {
     managed: "受管来源",
-    imported: "导入来源",
   };
   const sourceHealthLabel = {
     healthy: "健康",
     reauth_required: "待重登",
     disabled: "已停用",
   };
+  const opStateLabel = {
+    signed_confirmed: "已确认到账",
+    signed_provisional: "已领取，待确认",
+    already: "今日已领取",
+    ineligible: "不符合活动资格",
+    inactive: "活动未开始或已结束",
+    manual_required: "应用内签到兜底",
+    failed_retryable: "网络或上游暂时失败",
+    failed_final: "执行失败",
+    completed: "已完成",
+    none: "尚未执行",
+  };
+  const opLabel = { checkin: "签到", keepalive: "保活" };
 
   function accountErrorMessage(err, fallback) {
     const text = err && err.message ? String(err.message) : String(err || "");
     // 只透出已知、可操作且不含账号秘密的后端原因。
     if (text.indexOf("无可用健康来源") !== -1) return text;
     if (text.indexOf("no rows") !== -1) return "账号不存在，请刷新列表后重试。";
+    if (text.indexOf("network") !== -1 || text.indexOf("网络") !== -1 ||
+        text.indexOf("timeout") !== -1 || text.indexOf("deadline") !== -1) {
+      return "网络请求失败，请检查网络后重试；本次未宣称成功。";
+    }
     return fallback;
   }
 
@@ -249,6 +271,7 @@
     showAccountsMessage(pending, "pending");
     try {
       await action();
+      if (control) control.disabled = false;
       await renderAccounts();
       showAccountsMessage(success, "success");
     } catch (err) {
@@ -256,6 +279,39 @@
       if (control) control.disabled = false;
       showAccountsMessage(accountErrorMessage(err, failure));
     }
+  }
+
+  function accountStatus(account) {
+    const ops = account.operations || [];
+    if (account.source_health === "reauth_required") {
+      return {
+        kind: "reauth",
+        text: "来源需重新登录",
+        hint: "请点击「重新登录」完成官方浏览器登录，再执行签到。",
+      };
+    }
+    if (!(account.sources || []).some(function (src) { return src.health === "healthy"; })) {
+      return {
+        kind: "disabled",
+        text: "无健康来源",
+        hint: "请重新登录或重新发现账号，恢复健康来源后再启用。",
+      };
+    }
+    if (ops.some(function (op) { return op.state === "manual_required"; })) {
+      return {
+        kind: "manual",
+        text: "应用内签到兜底",
+        hint: "请回 WorkBuddy 官方 App 完成签到，然后点击「只读复查」。",
+      };
+    }
+    if (ops.some(function (op) { return op.state === "failed_retryable"; })) {
+      return {
+        kind: "failed",
+        text: "网络请求失败或上游暂时失败",
+        hint: "请检查网络后点击「立即签到」重试；本次未宣称成功。",
+      };
+    }
+    return null;
   }
 
   async function renderAccounts() {
@@ -269,6 +325,13 @@
     }
     const body = document.getElementById("accounts-body");
     body.innerHTML = "";
+    if (!list || list.length === 0) {
+      const emptyAccounts = document.createElement("div");
+      emptyAccounts.className = "empty-accounts";
+      emptyAccounts.textContent = "暂无 WorkBuddy CN 账号。请点击「官方登录添加」或「发现账号」。";
+      body.appendChild(emptyAccounts);
+      return;
+    }
     list.forEach(function (a) {
       const box = document.createElement("div");
       box.className = "acct";
@@ -297,33 +360,110 @@
       row.appendChild(sw);
       box.appendChild(row);
 
+      const state = accountStatus(a);
+      if (state) {
+        const status = document.createElement("div");
+        status.className = "state";
+        const title = document.createElement("div");
+        title.textContent = state.text;
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = state.hint;
+        status.appendChild(title);
+        status.appendChild(hint);
+        box.appendChild(status);
+      }
+
+      const operations = a.operations || [];
+      if (operations.length) {
+        const stateBox = document.createElement("div");
+        stateBox.className = "state";
+        operations.forEach(function (op) {
+          const line = document.createElement("div");
+          line.className = "op";
+          line.textContent = (opLabel[op.operation] || op.operation) + "：" +
+            (opStateLabel[op.state] || op.state);
+          stateBox.appendChild(line);
+          if (op.message) {
+            const reason = document.createElement("div");
+            reason.className = "hint";
+            reason.textContent = op.message;
+            stateBox.appendChild(reason);
+          }
+          if (op.next_action) {
+            const next = document.createElement("div");
+            next.className = "hint";
+            next.textContent = "下一步：" + op.next_action;
+            stateBox.appendChild(next);
+          }
+        });
+        box.appendChild(stateBox);
+      }
+
       (a.sources || []).forEach(function (src) {
         const s = document.createElement("div");
         s.className = "src";
-        const pin = document.createElement("input");
-        pin.type = "checkbox";
-        pin.title = "优先使用此来源";
-        pin.checked = src.pinned;
-        pin.onchange = function () {
-          const pinned = pin.checked;
-          runAccountAction(
-            pin,
-            "正在更新来源优先级…",
-            "来源优先级已更新",
-            "来源优先级更新失败，请稍后重试。",
-            function () { return Bound.AccountsPinSource(a.target, a.id, src.id, pinned); },
-            function () { pin.checked = !pinned; }
-          );
-        };
         const text = document.createElement("span");
         text.textContent =
           (sourceKindLabel[src.kind] || src.kind) + " · " +
           (sourceHealthLabel[src.health] || src.health) +
           (src.read_only ? " · 只读" : "");
-        s.appendChild(pin);
         s.appendChild(text);
         box.appendChild(s);
       });
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      if (a.target === "workbuddy-cn") {
+        const login = document.createElement("button");
+        login.className = "secondary";
+        login.textContent = "重新登录";
+        login.onclick = function () {
+          runAccountAction(
+            login,
+            "正在发起官方登录与只读验证…",
+            "官方登录流程已发起",
+            "无法发起官方登录，请重试；未创建账号。",
+            function () { return beginLogin("workbuddy-cn"); }
+          );
+        };
+        actions.appendChild(login);
+
+        const refresh = document.createElement("button");
+        refresh.className = "secondary";
+        refresh.textContent = "刷新状态";
+        refresh.onclick = function () {
+          runAccountAction(
+            refresh,
+            "正在刷新登录状态与只读验证结果…",
+            "状态已刷新",
+            "刷新状态失败，请稍后重试。",
+            async function () {
+              await refreshLogin("workbuddy-cn");
+              await renderAccounts();
+            }
+          );
+        };
+        actions.appendChild(refresh);
+
+        const run = document.createElement("button");
+        const manual = operations.some(function (op) {
+          return op.operation === "checkin" && op.state === "manual_required";
+        });
+        run.textContent = manual ? "只读复查" : "立即签到";
+        run.disabled = !a.enabled;
+        run.title = a.enabled ? "" : "请先启用账号";
+        run.onclick = function () {
+          runAccountAction(
+            run,
+            manual ? "正在只读复查今日签到…" : "正在执行签到…",
+            manual ? "复查完成" : "签到操作完成",
+            "签到执行失败，请稍后重试；本次未宣称成功。",
+            function () { return Bound.AccountsRun(a.target, a.id, "checkin"); }
+          );
+        };
+        actions.appendChild(run);
+      }
 
       const del = document.createElement("button");
       del.className = "danger";
@@ -337,7 +477,8 @@
           function () { return Bound.AccountsDelete(a.target, a.id); }
         );
       };
-      box.appendChild(del);
+      actions.appendChild(del);
+      box.appendChild(actions);
 
       body.appendChild(box);
     });
@@ -385,7 +526,9 @@
       loginTimer = setTimeout(function () { refreshLogin(view.target); }, 1000);
     }
     if (view.status === "verified") {
-      renderAccounts();
+      renderAccounts().catch(function () {
+        showAccountsMessage("账号已通过只读验证，但列表刷新失败；请点击「刷新状态」重试。");
+      });
     }
   }
 
@@ -393,13 +536,14 @@
     if (!target) return;
     try {
       renderLogin(asJSON(await Bound.AccountsLoginStatus(target)));
-    } catch (_) {
+    } catch (err) {
       renderLogin({
         target: target,
         status: "failed",
         message: "无法读取官方登录状态，请重试；未创建账号",
         can_cancel: false,
       });
+      throw err;
     }
   }
 
@@ -412,7 +556,7 @@
   }
 
   document.querySelector('[data-act="discover"]').onclick = async function () {
-    const target = document.getElementById("target-select").value;
+    const target = "workbuddy-cn";
     try {
       await Bound.AccountsDiscover(target);
       showAccountsMessage("");
@@ -425,21 +569,38 @@
   async function beginLogin(target) {
     try {
       renderLogin(asJSON(await Bound.AccountsBeginLogin(target)));
-    } catch (_) {
+    } catch (err) {
       renderLogin({
         target: target,
         status: "failed",
         message: "无法发起官方登录，请重试；未创建账号",
         can_cancel: false,
       });
+      throw err;
     }
   }
 
   document.querySelector('[data-act="login"]').onclick = function () {
-    beginLogin(document.getElementById("target-select").value);
+    const button = this;
+    runAccountAction(
+      button,
+      "正在发起官方登录与只读验证…",
+      "官方登录流程已发起",
+      "无法发起官方登录，请重试；未创建账号。",
+      function () { return beginLogin("workbuddy-cn"); }
+    );
   };
   document.getElementById("login-retry").onclick = function () {
-    if (this.dataset.target) beginLogin(this.dataset.target);
+    const button = this;
+    if (button.dataset.target) {
+      runAccountAction(
+        button,
+        "正在重试只读验证…",
+        "只读验证已完成",
+        "只读验证失败，请重新登录；未创建账号。",
+        function () { return beginLogin(button.dataset.target); }
+      );
+    }
   };
   document.getElementById("login-cancel").onclick = async function () {
     const target = this.dataset.target;

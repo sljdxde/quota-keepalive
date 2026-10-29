@@ -46,7 +46,7 @@ func (a *App) GUI() *gui.App {
 		a.accounts,
 		a, // app 实现 gui.HostDiscoverer
 		a.workBuddyLoginService(),
-	)
+	).WithRuntime(a.status.Status, a)
 
 	deps := gui.Deps{
 		Targets:           targetOrder,
@@ -98,6 +98,12 @@ func (a *App) workBuddyLoginService() *workbuddy.LoginService {
 		OpenBrowser:  openURL,
 		Now:          a.now,
 	})
+}
+
+// RunAccount 实现 gui.AccountRunner：复用宿主调用的同一单账号执行链。
+func (a *App) RunAccount(ctx context.Context, target, accountID, operation string) error {
+	_, err := a.runOperation(ctx, target, accountID, operation)
+	return err
 }
 
 func workBuddyLoginBaseURL(overrides map[string]string) string {

@@ -115,6 +115,14 @@ func (s *BoundService) AccountsList() (json.RawMessage, error) {
 	return json.Marshal(list)
 }
 
+// AccountsRun 对单个账号执行签到或只读复查，与宿主调用共用执行链。
+func (s *BoundService) AccountsRun(target, accountID, operation string) error {
+	if target != "workbuddy-cn" || operation != "checkin" {
+		return errUnsupportedAccountAction
+	}
+	return s.deps.Accounts.Run(context.Background(), target, accountID, operation)
+}
+
 // AccountsSetEnabled 逐账号启停。
 func (s *BoundService) AccountsSetEnabled(target, accountID string, enabled bool) error {
 	return s.deps.Accounts.SetEnabled(context.Background(), target, accountID, enabled)

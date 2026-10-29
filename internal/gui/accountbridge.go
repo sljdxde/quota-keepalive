@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"qka/internal/accounts"
+	"qka/internal/status"
 	"qka/internal/workbuddy"
 )
 
@@ -23,11 +24,18 @@ type LoginManager interface {
 	Cancel(ctx context.Context, target string) (workbuddy.LoginView, error)
 }
 
+// AccountRunner executes one account-operation through the shared app chain.
+type AccountRunner interface {
+	RunAccount(ctx context.Context, target, accountID, operation string) error
+}
+
 // realBridge 是 AccountBridge 的具体实现。
 type realBridge struct {
 	acct   *accounts.Service
 	hosts  HostDiscoverer
 	logins LoginManager
+	runner AccountRunner
+	status func(context.Context) (status.View, error)
 }
 
 // NewAccountBridge 组装 AccountBridge。
@@ -35,7 +43,7 @@ func NewAccountBridge(
 	acct *accounts.Service,
 	hosts HostDiscoverer,
 	logins LoginManager,
-) AccountBridge {
+) *realBridge {
 	return &realBridge{
 		acct:   acct,
 		hosts:  hosts,
@@ -43,8 +51,42 @@ func NewAccountBridge(
 	}
 }
 
-func (b *realBridge) List(ctx context.Context) ([]accounts.Account, error) {
-	return b.acct.List(ctx, "")
+// WithRuntime adds today's operation projection and the shared single-account
+// runner. It is optional so lifecycle-only tests can use the narrow bridge.
+func (b *realBridge) WithRuntime(
+	statusFn func(context.Context) (status.View, error),
+	runner AccountRunner,
+) *realBridge {
+	b.status = statusFn
+	b.runner = runner
+	return b
+}
+
+func (b *realBridge) List(ctx context.Context) ([]AccountView, error) {
+	list, err := b.acct.List(ctx, "workbuddy-cn")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AccountView, 0, len(list))
+	var view status.View
+	if b.status != nil {
+		view, err = b.status(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, account := range list {
+		entry := AccountView{Account: account}
+		for _, current := range view.Accounts {
+			if current.Target == account.Target && current.AccountID == account.ID {
+				entry.SourceHealth = current.SourceHealth
+				entry.Operations = append([]status.OpStatus{}, current.Operations...)
+				break
+			}
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }
 
 func (b *realBridge) Discover(ctx context.Context, target string) error {
@@ -103,4 +145,11 @@ func (b *realBridge) Delete(ctx context.Context, target, accountID string) error
 
 func (b *realBridge) PinSource(ctx context.Context, target, accountID, sourceID string, pinned bool) error {
 	return b.acct.PinSource(ctx, target, accountID, sourceID, pinned)
+}
+
+func (b *realBridge) Run(ctx context.Context, target, accountID, operation string) error {
+	if b.runner == nil {
+		return errors.New("账号执行链未接线")
+	}
+	return b.runner.RunAccount(ctx, target, accountID, operation)
 }

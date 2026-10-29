@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"qka/internal/accounts"
 	"qka/internal/workbuddy"
 )
 
 type loginBoundAccounts struct {
-	view workbuddy.LoginView
+	view   workbuddy.LoginView
+	runner *recordingRunner
 }
 
-func (f *loginBoundAccounts) List(context.Context) ([]accounts.Account, error) {
+func (f *loginBoundAccounts) List(context.Context) ([]AccountView, error) {
 	return nil, nil
 }
 func (f *loginBoundAccounts) Discover(context.Context, string) error { return nil }
@@ -36,6 +36,12 @@ func (f *loginBoundAccounts) SetEnabled(context.Context, string, string, bool) e
 func (f *loginBoundAccounts) Delete(context.Context, string, string) error { return nil }
 func (f *loginBoundAccounts) PinSource(context.Context, string, string, string, bool) error {
 	return nil
+}
+func (f *loginBoundAccounts) Run(ctx context.Context, target, accountID, operation string) error {
+	if f.runner == nil {
+		return nil
+	}
+	return f.runner.RunAccount(ctx, target, accountID, operation)
 }
 
 func TestBoundLoginJSONExposesStateButNoCredentials(t *testing.T) {

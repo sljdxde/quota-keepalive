@@ -3,10 +3,12 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"qka/internal/accounts"
+	"qka/internal/status"
 	"qka/internal/store"
 	"qka/internal/workbuddy"
 )
@@ -27,6 +29,21 @@ type fakeLoginManager struct {
 	cancelErr  error
 	beginCalls int
 	cancelled  bool
+}
+
+type recordingRunner struct {
+	target    string
+	accountID string
+	operation string
+	calls     int
+}
+
+func (r *recordingRunner) RunAccount(_ context.Context, target, accountID, operation string) error {
+	r.target = target
+	r.accountID = accountID
+	r.operation = operation
+	r.calls++
+	return nil
 }
 
 func (f *fakeLoginManager) Begin(_ context.Context, _ string) (workbuddy.LoginView, error) {
@@ -190,5 +207,80 @@ func TestBridgeLoginUnsupportedTarget(t *testing.T) {
 	bridge, _ := newTestBridge(t, &fakeDiscoverer{}, nil)
 	if _, err := bridge.BeginLogin(context.Background(), "nope"); err != ErrNoOfficialEntry {
 		t.Fatalf("无官方登录服务应返回 ErrNoOfficialEntry，实际 %v", err)
+	}
+}
+
+func TestBridgeListOnlyReturnsWorkBuddyCNWithTodayState(t *testing.T) {
+	hosts := &fakeDiscoverer{
+		accounts: []accounts.DiscoveredAccount{
+			{ID: "u1", DisplayName: "User One", MaskedIdentity: "****1234",
+				SourceID: "s1", SourceKind: accounts.KindManaged},
+		},
+	}
+	bridge, _ := newTestBridge(t, hosts, &fakeLoginManager{})
+	ctx := context.Background()
+	if err := bridge.Discover(ctx, "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.Discover(ctx, "qoder-cn"); err != nil {
+		t.Fatal(err)
+	}
+
+	real := bridge.(*realBridge)
+	real.WithRuntime(func(context.Context) (status.View, error) {
+		return status.View{Accounts: []status.AccountStatus{{
+			Target: "workbuddy-cn", AccountID: "u1", SourceHealth: "healthy",
+			Operations: []status.OpStatus{{
+				Target: "workbuddy-cn", AccountID: "u1", Operation: "checkin",
+				State: "manual_required", Message: "自动签到被 WorkBuddy 拒绝",
+				NextAction: "请回 WorkBuddy App 签到，完成后再次执行 checkin_run 复查",
+			}},
+		}}}, nil
+	}, nil)
+
+	list, err := bridge.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Target != "workbuddy-cn" {
+		t.Fatalf("账号页只应返回 WorkBuddy CN 账号，实际 %+v", list)
+	}
+	if len(list[0].Operations) != 1 ||
+		list[0].Operations[0].State != "manual_required" ||
+		list[0].Operations[0].NextAction == "" {
+		t.Errorf("账号列表应带今日操作状态和下一步，实际 %+v", list[0].Operations)
+	}
+	if list[0].SourceHealth != "healthy" {
+		t.Errorf("账号列表应带来源健康状态，实际 %q", list[0].SourceHealth)
+	}
+}
+
+func TestBoundAccountsRunRejectsUnsupportedTargetAndOperation(t *testing.T) {
+	runner := &recordingRunner{}
+	accts := &loginBoundAccounts{runner: runner}
+	svc := NewBoundService(Deps{Accounts: accts})
+
+	for _, tc := range []struct {
+		target    string
+		operation string
+	}{
+		{"qoder-cn", "checkin"},
+		{"workbuddy-cn", "keepalive"},
+	} {
+		if err := svc.AccountsRun(tc.target, "u1", tc.operation); !errors.Is(err, errUnsupportedAccountAction) {
+			t.Errorf("不支持的账号动作应被拒绝: target=%s operation=%s err=%v",
+				tc.target, tc.operation, err)
+		}
+	}
+	if runner.calls != 0 {
+		t.Fatalf("被拒绝的动作不得进入执行链，实际调用 %d 次", runner.calls)
+	}
+
+	if err := svc.AccountsRun("workbuddy-cn", "u1", "checkin"); err != nil {
+		t.Fatal(err)
+	}
+	if runner.calls != 1 || runner.target != "workbuddy-cn" ||
+		runner.accountID != "u1" || runner.operation != "checkin" {
+		t.Errorf("支持的账号动作应进入执行链，实际 %+v", runner)
 	}
 }

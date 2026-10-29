@@ -93,6 +93,17 @@ export function AccountsPinSource(target, accountID, sourceID, pinned) {
 }
 
 /**
+ * AccountsRun 对单个账号执行签到或只读复查，与宿主调用共用执行链。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {string} operation
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsRun(target, accountID, operation) {
+    return $Call.ByID(1930593910, target, accountID, operation);
+}
+
+/**
  * AccountsSetEnabled 逐账号启停。
  * @param {string} target
  * @param {string} accountID
