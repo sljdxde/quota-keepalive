@@ -2,6 +2,8 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"qka/internal/accounts"
@@ -10,10 +12,12 @@ import (
 )
 
 type fakeDiscoverer struct {
-	accounts []accounts.DiscoveredAccount
+	accounts      []accounts.DiscoveredAccount
+	discoverCalls int
 }
 
 func (f *fakeDiscoverer) Discover(_ context.Context, _ string) ([]accounts.DiscoveredAccount, error) {
+	f.discoverCalls++
 	return f.accounts, nil
 }
 
@@ -69,6 +73,62 @@ func TestBridgeDiscoverThenList(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].ID != "u1" {
 		t.Fatalf("发现后应列出 1 个账号，实际 %+v", list)
+	}
+}
+
+func TestBridgeListExposesMaskedIdentityAndSourceMetadata(t *testing.T) {
+	hosts := &fakeDiscoverer{
+		accounts: []accounts.DiscoveredAccount{
+			{ID: "u1", DisplayName: "User One", MaskedIdentity: "****1234",
+				SourceID: "s1", SourceKind: accounts.KindManaged},
+		},
+	}
+	bridge, _ := newTestBridge(t, hosts, &fakeLoginManager{})
+	ctx := context.Background()
+	if err := bridge.Discover(ctx, "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := bridge.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := string(raw)
+	for _, want := range []string{`"masked_identity":"****1234"`, `"kind":"managed"`, `"health":"healthy"`} {
+		if !strings.Contains(projection, want) {
+			t.Errorf("账号列表缺少 %s: %s", want, projection)
+		}
+	}
+	for _, secret := range []string{"access_token", "refresh_token", "cookie"} {
+		if strings.Contains(projection, secret) {
+			t.Errorf("账号列表不得包含 %s: %s", secret, projection)
+		}
+	}
+}
+
+func TestBridgeDeleteDoesNotDispatchToTargetApplication(t *testing.T) {
+	hosts := &fakeDiscoverer{
+		accounts: []accounts.DiscoveredAccount{
+			{ID: "u1", DisplayName: "User One", MaskedIdentity: "****1234",
+				SourceID: "s1", SourceKind: accounts.KindManaged},
+		},
+	}
+	bridge, _ := newTestBridge(t, hosts, &fakeLoginManager{})
+	ctx := context.Background()
+	if err := bridge.Discover(ctx, "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+	hosts.discoverCalls = 0
+
+	if err := bridge.Delete(ctx, "workbuddy-cn", "u1"); err != nil {
+		t.Fatal(err)
+	}
+	if hosts.discoverCalls != 0 {
+		t.Errorf("删除 QKA 映射不得调用目标应用适配器，实际 %d 次", hosts.discoverCalls)
 	}
 }
 

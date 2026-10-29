@@ -4,20 +4,32 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
 // ErrNoHealthySource 无可用健康来源。
-var ErrNoHealthySource = errors.New("无可用健康来源")
+var ErrNoHealthySource = errors.New("无可用健康来源，请重新登录或导入有效登录态后再启用")
+
+// ManagedCredentialDeleter 清理 QKA 受管来源持有的凭据。
+type ManagedCredentialDeleter interface {
+	DeleteManaged(ctx context.Context, target, accountID, sourceID string) error
+}
 
 // Service 管理账号与来源。
 type Service struct {
-	db *sql.DB
+	db          *sql.DB
+	credentials ManagedCredentialDeleter
 }
 
 // NewService 构造账号服务。
 func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
+}
+
+// SetManagedCredentialDeleter 注入受管凭据清理能力。
+func (s *Service) SetManagedCredentialDeleter(deleter ManagedCredentialDeleter) {
+	s.credentials = deleter
 }
 
 func nowTS() string {
@@ -54,15 +66,19 @@ ON CONFLICT(target, id) DO UPDATE SET
 		if kind == string(KindImported) {
 			readOnly = 1
 		}
+		health := a.Health
+		if health == "" {
+			health = HealthHealthy
+		}
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO sources (id, target, account_id, kind, read_only, health, pinned, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'healthy', 0, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
 ON CONFLICT(target, account_id, id) DO UPDATE SET
   kind = excluded.kind,
   read_only = excluded.read_only,
-  health = 'healthy',
+  health = excluded.health,
   updated_at = excluded.updated_at`,
-			a.SourceID, target, a.ID, kind, readOnly, ts, ts)
+			a.SourceID, target, a.ID, kind, readOnly, health, ts, ts)
 		if err != nil {
 			return err
 		}
@@ -108,19 +124,51 @@ func (s *Service) PinSource(ctx context.Context, target, accountID, sourceID str
 
 // SetEnabled 逐账号启停。
 func (s *Service) SetEnabled(ctx context.Context, target, accountID string, enabled bool) error {
+	if enabled {
+		if _, err := s.Get(ctx, target, accountID); err != nil {
+			return err
+		}
+		if _, err := s.PreferredSource(ctx, target, accountID); err != nil {
+			return err
+		}
+	}
 	e := 0
 	if enabled {
 		e = 1
 	}
-	_, err := s.db.ExecContext(ctx,
+	result, err := s.db.ExecContext(ctx,
 		`UPDATE accounts SET enabled = ?, updated_at = ? WHERE target = ? AND id = ?`,
 		e, nowTS(), target, accountID)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
-// Delete 仅删除 QKA 映射（账号行级联来源），目标应用数据完好。
+// Delete 删除 QKA 映射、来源与受管凭据，目标应用数据保持不变。
 func (s *Service) Delete(ctx context.Context, target, accountID string) error {
-	_, err := s.db.ExecContext(ctx,
+	sources, err := s.loadSources(ctx, target, accountID)
+	if err != nil {
+		return err
+	}
+	if s.credentials != nil {
+		for _, source := range sources {
+			if source.Kind != KindManaged {
+				continue
+			}
+			if err := s.credentials.DeleteManaged(ctx, target, accountID, source.ID); err != nil {
+				return fmt.Errorf("清理受管凭据失败: %w", err)
+			}
+		}
+	}
+	_, err = s.db.ExecContext(ctx,
 		`DELETE FROM accounts WHERE target = ? AND id = ?`, target, accountID)
 	return err
 }

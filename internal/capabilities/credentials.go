@@ -186,29 +186,43 @@ func (c *CredentialService) Delete(ctx context.Context, ref CredentialRef) error
 		return ErrImportedReadOnly
 	}
 	account := c.secretAccount(ref)
-	var lastErr error
+	var failures []error
 	deleted := false
 	if c.keychain != nil {
 		if err := c.keychain.Delete(ctx, serviceName, account); err == nil {
 			deleted = true
-		} else {
-			lastErr = err
+		} else if !errors.Is(err, ErrSecretNotFound) {
+			failures = append(failures, err)
 		}
 	}
 	if c.file != nil {
 		if err := c.file.Delete(ctx, serviceName, account); err == nil {
 			deleted = true
-		} else {
-			lastErr = err
+		} else if !errors.Is(err, ErrSecretNotFound) {
+			failures = append(failures, err)
 		}
 	}
-	if deleted {
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	if !deleted {
+		return ErrSecretNotFound
+	}
+	return nil
+}
+
+// DeleteManaged removes a managed source's credentials and treats an already
+// absent credential as success so account deletion remains retryable.
+func (c *CredentialService) DeleteManaged(
+	ctx context.Context, target, accountID, sourceID string,
+) error {
+	err := c.Delete(ctx, CredentialRef{
+		Target: target, AccountID: accountID, SourceID: sourceID, Kind: Managed,
+	})
+	if errors.Is(err, ErrSecretNotFound) {
 		return nil
 	}
-	if lastErr != nil {
-		return lastErr
-	}
-	return ErrSecretNotFound
+	return err
 }
 
 // Refresh 仅 managed 来源允许（官方刷新路径在后续适配器接线）；imported 直接拒绝。

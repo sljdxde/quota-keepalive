@@ -2,6 +2,9 @@ package accounts
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"slices"
 	"testing"
 
 	"qka/internal/store"
@@ -106,6 +109,27 @@ func TestDiscoverDefaultsNewAccountsDisabledAndPreservesExistingState(t *testing
 	}
 }
 
+func TestDiscoverPreservesReportedSourceHealth(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	found := discovered()[:1]
+	found[0].Health = HealthReauthRequired
+	if err := svc.Discover(ctx, "qoder-cn", found); err != nil {
+		t.Fatal(err)
+	}
+
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acc.Sources) != 1 || acc.Sources[0].Health != HealthReauthRequired {
+		t.Fatalf("发现结果应保留来源健康状态，实际 %+v", acc.Sources)
+	}
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); !errors.Is(err, ErrNoHealthySource) {
+		t.Fatalf("待重登来源不得启用账号，实际 %v", err)
+	}
+}
+
 func TestImportSourceMarkedReadOnly(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()
@@ -199,6 +223,69 @@ func TestSetEnabled(t *testing.T) {
 	}
 }
 
+func TestEnableRequiresHealthySource(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkSourceFailure(ctx, "qoder-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); !errors.Is(err, ErrNoHealthySource) {
+		t.Fatalf("无健康来源时启用应失败，实际 %v", err)
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Enabled {
+		t.Fatal("启用失败后账号必须保持停用")
+	}
+
+	if err := svc.ImportSource(ctx, "qoder-cn", "q_1", "imp_healthy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); err != nil {
+		t.Fatalf("存在健康来源时应可启用: %v", err)
+	}
+}
+
+func TestDisableKeepsSourcesAndCredentials(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); err != nil {
+		t.Fatal(err)
+	}
+	deleter := &recordedCredentialDeletion{}
+	svc.SetManagedCredentialDeleter(deleter)
+
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", false); err != nil {
+		t.Fatal(err)
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Enabled || len(acc.Sources) != 1 {
+		t.Fatalf("停用应只关闭启用位并保留来源，实际 %+v", acc)
+	}
+	if len(deleter.sources) != 0 {
+		t.Fatalf("停用不得清理凭据，实际删除 %v", deleter.sources)
+	}
+}
+
+func TestEnableMissingAccountReportsNotFound(t *testing.T) {
+	svc := newService(t)
+	if err := svc.SetEnabled(context.Background(), "qoder-cn", "missing", true); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("启用不存在账号应返回 not found，实际 %v", err)
+	}
+}
+
 func TestDeleteRemovesMappingOnly(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()
@@ -217,6 +304,60 @@ func TestDeleteRemovesMappingOnly(t *testing.T) {
 		`SELECT COUNT(*) FROM sources WHERE account_id = 'q_1'`).Scan(&n)
 	if n != 0 {
 		t.Errorf("删除账号应级联删其来源，实际 %d", n)
+	}
+}
+
+type recordedCredentialDeletion struct {
+	sources []string
+	err     error
+}
+
+func (r *recordedCredentialDeletion) DeleteManaged(
+	_ context.Context, _, _, sourceID string,
+) error {
+	r.sources = append(r.sources, sourceID)
+	return r.err
+}
+
+func TestDeleteCleansOnlyManagedCredentials(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ImportSource(ctx, "qoder-cn", "q_1", "imp_1"); err != nil {
+		t.Fatal(err)
+	}
+	deleter := &recordedCredentialDeletion{}
+	svc.SetManagedCredentialDeleter(deleter)
+
+	if err := svc.Delete(ctx, "qoder-cn", "q_1"); err != nil {
+		t.Fatalf("删除账号失败: %v", err)
+	}
+	if !slices.Equal(deleter.sources, []string{"qs_1"}) {
+		t.Errorf("只应清理受管来源凭据，实际 %v", deleter.sources)
+	}
+}
+
+func TestDeleteKeepsMappingWhenCredentialCleanupFails(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetManagedCredentialDeleter(&recordedCredentialDeletion{
+		err: errors.New("credential backend unavailable"),
+	})
+
+	if err := svc.Delete(ctx, "qoder-cn", "q_1"); err == nil {
+		t.Fatal("凭据清理失败时删除必须报错")
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatalf("凭据清理失败时账号映射必须保留: %v", err)
+	}
+	if len(acc.Sources) != 1 {
+		t.Fatalf("凭据清理失败时来源必须保留，实际 %+v", acc.Sources)
 	}
 }
 

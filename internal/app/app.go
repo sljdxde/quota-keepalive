@@ -94,7 +94,6 @@ func Build(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	a.engine = engine.New(st.DB(), a.now, a.holderID)
-	a.accounts = accounts.NewService(st.DB())
 	a.pendingCredentials = capabilities.NewLoginCredentialStore(
 		capabilities.NewKeychainStore(),
 		capabilities.NewFileSecretStore(cfg.ConfigDir),
@@ -108,6 +107,8 @@ func Build(ctx context.Context, cfg Config) (*App, error) {
 		},
 		a.now,
 	)
+	a.accounts = accounts.NewService(st.DB())
+	a.accounts.SetManagedCredentialDeleter(a.credentials)
 	a.registry = registry.New(st.DB(), a.now)
 	a.registry.SetAdapters(a.registryAdapters())
 	a.status = status.NewService(st.DB(), a.now, a.capabilitiesFor)

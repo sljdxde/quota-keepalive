@@ -49,4 +49,5 @@ type DiscoveredAccount struct {
 	MaskedIdentity string
 	SourceID       string
 	SourceKind     SourceKind
+	Health         SourceHealth
 }
