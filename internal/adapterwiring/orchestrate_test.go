@@ -19,12 +19,12 @@ type wiredEnv struct {
 	eng  *engine.Engine
 }
 
-// afternoonAt 是固定的北京午后时刻（用于落库 signed_confirmed）。
-func afternoonAt() time.Time {
-	return time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
+func beijingAt(hour int) time.Time {
+	return time.Date(2026, 10, 29, hour, 0, 0, 0,
+		time.FixedZone("Asia/Shanghai", 8*3600))
 }
 
-func setupWired(t *testing.T, targetURL string) wiredEnv {
+func setupWiredAt(t *testing.T, targetURL string, now func() time.Time) wiredEnv {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -49,17 +49,20 @@ func setupWired(t *testing.T, targetURL string) wiredEnv {
 	}
 	t.Cleanup(func() { _ = host.Close() })
 
-	eng := engine.New(st.DB(), func() time.Time { return afternoonAt() }, "host")
+	eng := engine.New(st.DB(), now, "host")
 	return wiredEnv{st: st, host: host, eng: eng}
+}
+
+func checkinKey() engine.Key {
+	return engine.Key{Target: "workbuddy-cn", AccountID: "u_1", Operation: engine.Checkin}
 }
 
 func TestCheckinPersistsDailyOpAndLog(t *testing.T) {
 	target := newFakeTarget(t, scenario{accounts: healthyAccounts()})
 	defer target.Close()
-	env := setupWired(t, target.URL)
+	env := setupWiredAt(t, target.URL, func() time.Time { return beijingAt(14) })
 
-	key := engine.Key{Target: "workbuddy-cn", AccountID: "u_1", Operation: engine.Checkin}
-	obs, err := env.eng.Run(context.Background(), key, CheckinExecutor(env.host))
+	obs, err := env.eng.Run(context.Background(), checkinKey(), CheckinExecutor(env.host))
 	if err != nil {
 		t.Fatalf("Run 失败: %v", err)
 	}
@@ -67,7 +70,6 @@ func TestCheckinPersistsDailyOpAndLog(t *testing.T) {
 		t.Fatalf("午后成功应 confirmed，实际 %s", obs.State)
 	}
 
-	// daily_ops 落库。
 	var state string
 	err = env.st.DB().QueryRowContext(context.Background(),
 		`SELECT state FROM daily_ops WHERE target = ? AND account_id = ? AND operation = ?`,
@@ -79,7 +81,6 @@ func TestCheckinPersistsDailyOpAndLog(t *testing.T) {
 		t.Errorf("落库状态错误: %s", state)
 	}
 
-	// logs 写入。
 	var msg string
 	err = env.st.DB().QueryRowContext(context.Background(),
 		`SELECT message FROM logs WHERE target = ? AND account_id = ?`,
@@ -89,5 +90,52 @@ func TestCheckinPersistsDailyOpAndLog(t *testing.T) {
 	}
 	if msg != "签到完成" {
 		t.Errorf("日志内容错误: %s", msg)
+	}
+}
+
+func TestCheckinRunnerEvidenceGate(t *testing.T) {
+	cases := []struct {
+		name      string
+		hour      int
+		evidence  bool
+		wantState engine.State
+		wantMsg   string
+	}{
+		{"午前总是待复核", 10, true, engine.SignedProvisional, "已领取，待复核"},
+		{"午后证据充分确认", 14, true, engine.SignedConfirmed, "已到账"},
+		{"午后缺证据待复核", 14, false, engine.SignedProvisional, "已领取，待复核"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := newFakeTarget(t, scenario{
+				accounts: healthyAccounts(), checkinEvidence: tc.evidence,
+			})
+			defer target.Close()
+
+			now := func() time.Time { return beijingAt(tc.hour) }
+			env := setupWiredAt(t, target.URL, now)
+			runner := NewCheckinRunner(env.eng, env.host, now,
+				target.URL+"/api/checkin")
+
+			obs, err := runner.Run(context.Background(), checkinKey())
+			if err != nil {
+				t.Fatalf("Run 失败: %v", err)
+			}
+			if obs.State != tc.wantState {
+				t.Errorf("期望状态 %s，实际 %s", tc.wantState, obs.State)
+			}
+			if obs.Message != tc.wantMsg {
+				t.Errorf("期望文案 %q，实际 %q", tc.wantMsg, obs.Message)
+			}
+
+			var state string
+			_ = env.st.DB().QueryRowContext(context.Background(),
+				`SELECT state FROM daily_ops WHERE target = ? AND account_id = ?`,
+				"workbuddy-cn", "u_1").Scan(&state)
+			if state != string(tc.wantState) {
+				t.Errorf("落库状态应 %s，实际 %s", tc.wantState, state)
+			}
+		})
 	}
 }

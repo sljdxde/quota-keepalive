@@ -114,6 +114,17 @@ WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`,
 	return State(s), err
 }
 
+// ReconcileState 在只读复核后显式修正当日状态（如证据不足时 confirmed→provisional）。
+func (e *Engine) ReconcileState(ctx context.Context, key Key, state State, message string) error {
+	day := BeijingDay(e.clock())
+	_, err := e.db.ExecContext(ctx, `
+UPDATE daily_ops SET state = ?, message = ?, updated_at = ?
+WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`,
+		string(state), message, formatTS(e.clock()),
+		key.Target, key.AccountID, string(key.Operation), day)
+	return err
+}
+
 // complete 写回新状态并释放租约；保活可重试失败时设置冷却。
 func (e *Engine) complete(ctx context.Context, key Key, day string, newState State, message string, now time.Time) error {
 	cooldown := ""
