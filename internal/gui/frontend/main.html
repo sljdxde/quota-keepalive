@@ -39,10 +39,17 @@
   .login-status p { margin: 6px 0 0; font-size: 13px; }
   .login-status small { display: block; margin-top: 6px; color: #777; }
   .login-status.pending_verification { border-color: #0ea371; }
-  .login-status.failed, .login-status.expired { border-color: #ff5f57; }
+  .login-status.verified { border-color: #30d158; }
+  .login-status.failed, .login-status.expired, .login-status.reauth_required { border-color: #ff5f57; }
+  .login-status.retryable { border-color: #ff9f0a; }
   #login-cancel { padding: 4px 8px; border: 1px solid #999; border-radius: 6px;
                   background: transparent; color: inherit; cursor: pointer; }
   #login-cancel[hidden] { display: none; }
+  #login-retry { padding: 4px 8px; border: 1px solid #ff9f0a; border-radius: 6px;
+                 background: transparent; color: inherit; cursor: pointer; }
+  #login-retry[hidden] { display: none; }
+  .accounts-message { margin: 0 0 10px; color: #ff5f57; font-size: 13px; }
+  .accounts-message[hidden] { display: none; }
   .danger { color: #ff5f57; border: 0; background: none; cursor: pointer; }
   section button { padding: 6px 10px; border: 1px solid #0ea371; border-radius: 6px;
                    background: #0ea371; color: #fff; cursor: pointer; }
@@ -114,10 +121,14 @@
           <option value="doubao-work">豆包工作</option>
         </select>
       </div>
+      <p id="accounts-message" class="accounts-message" role="alert" hidden></p>
       <div id="login-status" class="login-status" role="status" aria-live="polite" hidden>
         <div class="row">
           <strong id="login-status-title">官方登录</strong>
-          <button id="login-cancel" type="button" hidden>取消登录</button>
+          <span>
+            <button id="login-retry" type="button" hidden>重试验证</button>
+            <button id="login-cancel" type="button" hidden>取消登录</button>
+          </span>
         </div>
         <p id="login-status-message"></p>
         <small id="login-status-origin"></small>
@@ -213,7 +224,14 @@
 
   // 账号管理页（无任何密码/验证码/扫码输入）。
   async function renderAccounts() {
-    const list = asJSON(await Bound.AccountsList());
+    let list;
+    try {
+      list = asJSON(await Bound.AccountsList());
+      showAccountsMessage("");
+    } catch (_) {
+      showAccountsMessage("无法读取账号列表，请重试。");
+      return;
+    }
     const body = document.getElementById("accounts-body");
     body.innerHTML = "";
     list.forEach(function (a) {
@@ -268,6 +286,9 @@
     idle: "官方登录",
     pending: "等待官方登录",
     pending_verification: "授权已取得，等待只读验证",
+    verified: "只读验证通过",
+    reauth_required: "需要重新登录",
+    retryable: "只读验证可重试",
     cancelled: "官方登录已取消",
     expired: "官方登录已超时",
     failed: "官方登录失败",
@@ -294,9 +315,15 @@
     const cancel = document.getElementById("login-cancel");
     cancel.hidden = !view.can_cancel;
     cancel.dataset.target = view.target || "";
+    const retry = document.getElementById("login-retry");
+    retry.hidden = view.status !== "retryable";
+    retry.dataset.target = view.target || "";
 
-    if (view.status === "pending") {
+    if (view.status === "pending" || view.status === "pending_verification") {
       loginTimer = setTimeout(function () { refreshLogin(view.target); }, 1000);
+    }
+    if (view.status === "verified") {
+      renderAccounts();
     }
   }
 
@@ -314,12 +341,24 @@
     }
   }
 
-  document.querySelector('[data-act="discover"]').onclick = function () {
+  function showAccountsMessage(message) {
+    const el = document.getElementById("accounts-message");
+    el.textContent = message;
+    el.hidden = !message;
+  }
+
+  document.querySelector('[data-act="discover"]').onclick = async function () {
     const target = document.getElementById("target-select").value;
-    Bound.AccountsDiscover(target).then(renderAccounts);
+    try {
+      await Bound.AccountsDiscover(target);
+      showAccountsMessage("");
+      await renderAccounts();
+    } catch (_) {
+      showAccountsMessage("发现账号失败，请重试。");
+    }
   };
-  document.querySelector('[data-act="login"]').onclick = async function () {
-    const target = document.getElementById("target-select").value;
+
+  async function beginLogin(target) {
     try {
       renderLogin(asJSON(await Bound.AccountsBeginLogin(target)));
     } catch (_) {
@@ -330,6 +369,13 @@
         can_cancel: false,
       });
     }
+  }
+
+  document.querySelector('[data-act="login"]').onclick = function () {
+    beginLogin(document.getElementById("target-select").value);
+  };
+  document.getElementById("login-retry").onclick = function () {
+    if (this.dataset.target) beginLogin(this.dataset.target);
   };
   document.getElementById("login-cancel").onclick = async function () {
     const target = this.dataset.target;

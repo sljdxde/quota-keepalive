@@ -7,13 +7,14 @@ import (
 	"io"
 
 	"qka/internal/app"
+	"qka/internal/workbuddy"
 )
 
 // commonFlags 是 serve / tray 共用的启动参数。
 type commonFlags struct {
-	jsonOut bool
-	addr    string
-	port    int
+	jsonOut  bool
+	addr     string
+	port     int
 	adapters string
 	bun      string
 }
@@ -51,6 +52,16 @@ func (c *commonFlags) buildApp(ctx context.Context, env *Env) (*app.App, error) 
 		AdaptersRoot: resolveAdaptersRoot(env, c.adapters),
 		BunPath:      resolveBun(env, c.bun),
 		Version:      Version,
+		BaseURLs:     productionBaseURLs(),
+		AllowedHosts: productionAllowedHosts(),
 	}
 	return app.Build(ctx, cfg)
+}
+
+func productionBaseURLs() map[string]string {
+	return map[string]string{"workbuddy-cn": workbuddy.DefaultBaseURL}
+}
+
+func productionAllowedHosts() []string {
+	return []string{"copilot.tencent.com"}
 }

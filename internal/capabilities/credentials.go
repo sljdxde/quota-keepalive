@@ -161,10 +161,54 @@ func (c *CredentialService) Persist(ctx context.Context, ref CredentialRef, secr
 		return ErrImportedReadOnly
 	}
 	account := c.secretAccount(ref)
-	if err := c.keychain.Set(ctx, serviceName, account, secret); err == nil {
-		return nil
+	if c.keychain != nil {
+		if err := c.keychain.Set(ctx, serviceName, account, secret); err == nil {
+			if c.file != nil {
+				// Best effort: avoid retaining a stale protected-file copy.
+				_ = c.file.Delete(ctx, serviceName, account)
+			}
+			return nil
+		}
+	}
+	if c.file == nil {
+		return errors.New("凭据后端不可用")
 	}
 	return c.file.Set(ctx, serviceName, account, secret)
+}
+
+// Delete removes both possible managed-credential copies. It is used when a
+// post-persist account write fails and the source must not point at a secret.
+func (c *CredentialService) Delete(ctx context.Context, ref CredentialRef) error {
+	if err := c.grant.Authorize("credentials.managed"); err != nil {
+		return err
+	}
+	if ref.Kind != Managed {
+		return ErrImportedReadOnly
+	}
+	account := c.secretAccount(ref)
+	var lastErr error
+	deleted := false
+	if c.keychain != nil {
+		if err := c.keychain.Delete(ctx, serviceName, account); err == nil {
+			deleted = true
+		} else {
+			lastErr = err
+		}
+	}
+	if c.file != nil {
+		if err := c.file.Delete(ctx, serviceName, account); err == nil {
+			deleted = true
+		} else {
+			lastErr = err
+		}
+	}
+	if deleted {
+		return nil
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return ErrSecretNotFound
 }
 
 // Refresh 仅 managed 来源允许（官方刷新路径在后续适配器接线）；imported 直接拒绝。

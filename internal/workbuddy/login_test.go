@@ -18,6 +18,28 @@ type memoryPendingStore struct {
 	payload map[string][]byte
 }
 
+type fakeVerifier struct {
+	mu         sync.Mutex
+	calls      int
+	credential PendingCredential
+	outcomes   []VerificationOutcome
+}
+
+func (f *fakeVerifier) Verify(_ context.Context, credential PendingCredential) VerificationOutcome {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.credential = credential
+	index := f.calls - 1
+	if index >= len(f.outcomes) {
+		index = len(f.outcomes) - 1
+	}
+	if index < 0 {
+		return VerificationOutcome{Status: LoginRetryable, Message: "请重试"}
+	}
+	return f.outcomes[index]
+}
+
 func newMemoryPendingStore() *memoryPendingStore {
 	return &memoryPendingStore{payload: map[string][]byte{}}
 }
@@ -27,6 +49,16 @@ func (s *memoryPendingStore) Save(_ context.Context, sessionID string, payload [
 	defer s.mu.Unlock()
 	s.payload[sessionID] = append([]byte(nil), payload...)
 	return nil
+}
+
+func (s *memoryPendingStore) Load(_ context.Context, sessionID string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	payload, ok := s.payload[sessionID]
+	if !ok {
+		return nil, ErrPendingCredentialNotFound
+	}
+	return append([]byte(nil), payload...), nil
 }
 
 func (s *memoryPendingStore) Delete(_ context.Context, sessionID string) error {
@@ -191,6 +223,140 @@ func TestBrowserLoginStoresPendingCredentialWithoutCreatingAccount(t *testing.T)
 	if strings.Contains(view.Message, accessToken) || strings.Contains(view.Message, refreshToken) ||
 		strings.Contains(view.Message, uid) || strings.Contains(view.Message, "13800138000") {
 		t.Errorf("登录状态泄露敏感字段: %+v", view)
+	}
+}
+
+func TestBrowserLoginRunsReadOnlyVerifierBeforePublishingVerifiedState(t *testing.T) {
+	const (
+		accessToken = "verified-access"
+		uid         = "verified-uid-1234"
+	)
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/plugin/auth/state":
+			writeEnvelope(t, w, map[string]any{
+				"state": "verified-state", "authUrl": "http://" + r.Host + "/official-login",
+			})
+		case "/v2/plugin/auth/token":
+			writeEnvelope(t, w, map[string]any{
+				"accessToken": accessToken, "refreshToken": "refresh",
+				"expiresIn": 3600, "domain": "copilot.tencent.com",
+			})
+		case "/v2/plugin/login/account":
+			writeEnvelope(t, w, map[string]any{
+				"uid": uid, "type": "personal", "phoneNumber": "13800138000",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	verifier := &fakeVerifier{outcomes: []VerificationOutcome{{
+		Status: LoginVerified, Message: "只读验证通过，已添加账号；首次发现默认停用",
+	}}}
+	svc := NewLoginService(LoginConfig{
+		BaseURL: target.URL, PendingStore: newMemoryPendingStore(),
+		OpenBrowser:  func(string) error { return nil },
+		PollInterval: 5 * time.Millisecond, Timeout: time.Second, Verifier: verifier,
+	})
+
+	if _, err := svc.Begin(context.Background(), "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	var view LoginView
+	for time.Now().Before(deadline) {
+		view = svc.Status(context.Background(), "workbuddy-cn")
+		if view.Status == LoginVerified {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if view.Status != LoginVerified {
+		t.Fatalf("验证通过后应发布 verified，实际 %+v", view)
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("授权完成后应自动只读验证一次，实际 %d", verifier.calls)
+	}
+	if verifier.credential.AccessToken != accessToken || verifier.credential.UID != uid {
+		t.Errorf("验证器未收到完整待验证凭据")
+	}
+	if strings.Contains(view.Message, accessToken) || strings.Contains(view.Message, uid) {
+		t.Errorf("验证状态不得泄露凭据或完整身份: %+v", view)
+	}
+}
+
+func TestBrowserLoginRetryableVerificationReusesPendingCredential(t *testing.T) {
+	var mu sync.Mutex
+	stateRequests := 0
+	opened := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/plugin/auth/state":
+			mu.Lock()
+			stateRequests++
+			mu.Unlock()
+			writeEnvelope(t, w, map[string]any{
+				"state": "retry-state", "authUrl": "http://" + r.Host + "/official-login",
+			})
+		case "/v2/plugin/auth/token":
+			writeEnvelope(t, w, map[string]any{
+				"accessToken": "retry-access", "refreshToken": "retry-refresh",
+				"domain": "copilot.tencent.com",
+			})
+		case "/v2/plugin/login/account":
+			writeEnvelope(t, w, map[string]any{"uid": "retry-uid-1234", "type": "personal"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	verifier := &fakeVerifier{outcomes: []VerificationOutcome{
+		{Status: LoginRetryable, Message: "无法完成只读验证，请检查网络后重试；未创建账号"},
+		{Status: LoginVerified, Message: "只读验证通过，已添加账号；首次发现默认停用"},
+	}}
+	svc := NewLoginService(LoginConfig{
+		BaseURL: target.URL, PendingStore: newMemoryPendingStore(),
+		OpenBrowser: func(string) error {
+			opened++
+			return nil
+		},
+		PollInterval: 5 * time.Millisecond, Timeout: time.Second, Verifier: verifier,
+	})
+
+	if _, err := svc.Begin(context.Background(), "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	var view LoginView
+	for time.Now().Before(deadline) {
+		view = svc.Status(context.Background(), "workbuddy-cn")
+		if view.Status == LoginRetryable {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if view.Status != LoginRetryable {
+		t.Fatalf("首次验证网络失败应进入 retryable，实际 %+v", view)
+	}
+
+	view, err := svc.Begin(context.Background(), "workbuddy-cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Status != LoginVerified {
+		t.Fatalf("重试应复用待验证凭据并完成验证，实际 %+v", view)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if stateRequests != 1 || opened != 1 {
+		t.Errorf("重试验证不得重新发起浏览器登录，state=%d opened=%d", stateRequests, opened)
+	}
+	if verifier.calls != 2 {
+		t.Errorf("应验证两次，实际 %d", verifier.calls)
 	}
 }
 

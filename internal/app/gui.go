@@ -66,14 +66,37 @@ func (a *App) GUI() *gui.App {
 }
 
 func (a *App) workBuddyLoginService() *workbuddy.LoginService {
-	return workbuddy.NewLoginService(workbuddy.LoginConfig{
-		BaseURL: workBuddyLoginBaseURL(a.cfg.BaseURLs),
-		PendingStore: capabilities.NewLoginCredentialStore(
+	baseURL := workBuddyLoginBaseURL(a.cfg.BaseURLs)
+	pendingStore := a.pendingCredentials
+	if pendingStore == nil {
+		pendingStore = capabilities.NewLoginCredentialStore(
 			capabilities.NewKeychainStore(),
 			capabilities.NewFileSecretStore(a.cfg.ConfigDir),
-		),
-		OpenBrowser: openURL,
-		Now:         a.now,
+		)
+	}
+	credentials := a.credentials
+	if credentials == nil {
+		credentials = capabilities.NewCredentialService(
+			capabilities.NewKeychainStore(),
+			capabilities.NewFileSecretStore(a.cfg.ConfigDir),
+			capabilities.Grant{
+				"credentials.managed": true,
+				"credentials.resolve": true,
+			},
+			a.now,
+		)
+	}
+	verifier := workbuddy.NewVerificationService(workbuddy.VerificationConfig{
+		BaseURL:      baseURL,
+		PendingStore: pendingStore,
+		Sink:         newWorkBuddyVerificationSink(a.accounts, credentials),
+	})
+	return workbuddy.NewLoginService(workbuddy.LoginConfig{
+		BaseURL:      baseURL,
+		PendingStore: pendingStore,
+		Verifier:     verifier,
+		OpenBrowser:  openURL,
+		Now:          a.now,
 	})
 }
 

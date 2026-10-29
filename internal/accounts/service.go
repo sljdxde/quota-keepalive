@@ -36,7 +36,7 @@ func (s *Service) Discover(ctx context.Context, target string, accounts []Discov
 		ts := nowTS()
 		_, err := tx.ExecContext(ctx, `
 INSERT INTO accounts (id, target, display_name, masked_identity, enabled, created_at, updated_at)
-VALUES (?, ?, ?, ?, 1, ?, ?)
+VALUES (?, ?, ?, ?, 0, ?, ?)
 ON CONFLICT(target, id) DO UPDATE SET
   display_name = excluded.display_name,
   masked_identity = excluded.masked_identity,
@@ -57,7 +57,11 @@ ON CONFLICT(target, id) DO UPDATE SET
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO sources (id, target, account_id, kind, read_only, health, pinned, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, 'healthy', 0, ?, ?)
-ON CONFLICT(target, account_id, id) DO UPDATE SET updated_at = excluded.updated_at`,
+ON CONFLICT(target, account_id, id) DO UPDATE SET
+  kind = excluded.kind,
+  read_only = excluded.read_only,
+  health = 'healthy',
+  updated_at = excluded.updated_at`,
 			a.SourceID, target, a.ID, kind, readOnly, ts, ts)
 		if err != nil {
 			return err

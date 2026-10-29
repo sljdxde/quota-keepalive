@@ -14,6 +14,7 @@ import (
 
 	"qka/internal/accounts"
 	"qka/internal/adapterhost"
+	"qka/internal/capabilities"
 	"qka/internal/engine"
 	"qka/internal/registry"
 	"qka/internal/status"
@@ -58,6 +59,9 @@ type App struct {
 	registry *registry.Registry
 	accounts *accounts.Service
 	status   *status.Service
+
+	pendingCredentials *capabilities.LoginCredentialStore
+	credentials        *capabilities.CredentialService
 }
 
 // Build 装配应用：打开 store、发现并启动适配器、构造各服务。
@@ -89,6 +93,19 @@ func Build(ctx context.Context, cfg Config) (*App, error) {
 
 	a.engine = engine.New(st.DB(), a.now, a.holderID)
 	a.accounts = accounts.NewService(st.DB())
+	a.pendingCredentials = capabilities.NewLoginCredentialStore(
+		capabilities.NewKeychainStore(),
+		capabilities.NewFileSecretStore(cfg.ConfigDir),
+	)
+	a.credentials = capabilities.NewCredentialService(
+		capabilities.NewKeychainStore(),
+		capabilities.NewFileSecretStore(cfg.ConfigDir),
+		capabilities.Grant{
+			"credentials.managed": true,
+			"credentials.resolve": true,
+		},
+		a.now,
+	)
 	a.registry = registry.New(st.DB(), a.now)
 	a.registry.SetAdapters(a.registryAdapters())
 	a.status = status.NewService(st.DB(), a.now, a.capabilitiesFor)

@@ -1,0 +1,53 @@
+package app
+
+import (
+	"context"
+	"errors"
+
+	"qka/internal/accounts"
+	"qka/internal/capabilities"
+	"qka/internal/workbuddy"
+)
+
+type workBuddyVerificationSink struct {
+	accounts    *accounts.Service
+	credentials *capabilities.CredentialService
+}
+
+func newWorkBuddyVerificationSink(
+	acct *accounts.Service,
+	creds *capabilities.CredentialService,
+) *workBuddyVerificationSink {
+	return &workBuddyVerificationSink{accounts: acct, credentials: creds}
+}
+
+func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
+	ctx context.Context,
+	account workbuddy.VerifiedAccount,
+	credential []byte,
+) error {
+	if s.accounts == nil || s.credentials == nil {
+		return errors.New("账号或凭据服务未接线")
+	}
+	ref := capabilities.CredentialRef{
+		Target:    account.Target,
+		AccountID: account.AccountID,
+		SourceID:  account.SourceID,
+		Kind:      capabilities.Managed,
+	}
+	if err := s.credentials.Persist(ctx, ref, string(credential)); err != nil {
+		return err
+	}
+	err := s.accounts.Discover(ctx, account.Target, []accounts.DiscoveredAccount{{
+		ID:             account.AccountID,
+		DisplayName:    account.DisplayName,
+		MaskedIdentity: account.MaskedIdentity,
+		SourceID:       account.SourceID,
+		SourceKind:     accounts.KindManaged,
+	}})
+	if err != nil {
+		_ = s.credentials.Delete(ctx, ref)
+		return err
+	}
+	return nil
+}
