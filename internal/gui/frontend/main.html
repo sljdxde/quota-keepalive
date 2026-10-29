@@ -107,7 +107,22 @@
         <tbody id="agent-body"></tbody>
       </table>
     </section>
-    <section id="plugins" class="tab">插件（占位）</section>
+    <section id="plugins" class="tab">
+      <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="devmode-toggle"> 开发者模式（允许未签名适配器，每次加载需确认）
+        </label>
+      </div>
+      <table>
+        <thead><tr><th>适配器</th><th>版本</th><th>来源</th><th>签名/验证</th><th>更新状态</th></tr></thead>
+        <tbody id="plugins-body"></tbody>
+      </table>
+      <h4 style="margin-top:14px;">受限加载审计</h4>
+      <table>
+        <thead><tr><th>时间</th><th>包名</th><th>动作</th></tr></thead>
+        <tbody id="plugins-audit"></tbody>
+      </table>
+    </section>
   </main>
 
 <script type="module">
@@ -263,10 +278,46 @@
     });
   }
 
+  // 插件页：市场/签名/更新、开发者模式、审计。
+  function renderPlugins() {
+    Bound.PluginsList().then(function (raw) {
+      const view = JSON.parse(raw);
+      const body = document.getElementById("plugins-body");
+      body.innerHTML = "";
+      (view.plugins || []).forEach(function (p) {
+        const tr = document.createElement("tr");
+        const sig = p.signed ? "已签名/已验证" : "未验证";
+        [p.name, p.version, p.source === "market" ? "市场" : "本地",
+         sig, p.update_status].forEach(function (v) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+      const audit = document.getElementById("plugins-audit");
+      audit.innerHTML = "";
+      (view.audit || []).forEach(function (a) {
+        const tr = document.createElement("tr");
+        [a.ts, a.package_name, a.action].forEach(function (v) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        audit.appendChild(tr);
+      });
+      document.getElementById("devmode-toggle").checked = !!view.dev_mode;
+    });
+  }
+  document.getElementById("devmode-toggle").onchange = function () {
+    Bound.SetDevMode(this.checked).then(renderPlugins);
+  };
+
   renderApps();
   renderAccounts();
   appendLogs(true);
   renderAgent();
+  renderPlugins();
 </script>
 </body>
 </html>
