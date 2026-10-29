@@ -80,6 +80,33 @@ async function handleLine(line) {
           message: "签到完成",
         });
         send({ jsonrpc: "2.0", id: msg.id, result: data });
+      } else if (op === "keepalive.run") {
+        // 对齐 25k 输入 / 1 输出 token 的最低成本真实对话。
+        const input = "word ".repeat(20000); // 约 100k 字符 ≈ 25k token
+        const resp = await callHook("http.fetch", {
+          method: "POST",
+          url: baseURL + "/api/chat",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountId: msg.params.accountId,
+            maxOutputTokens: 1,
+            messages: [{ role: "user", content: input }],
+          }),
+        });
+        if (resp.status < 200 || resp.status >= 300) {
+          throw new Error("对话失败: " + resp.status);
+        }
+        const data = JSON.parse(resp.body);
+        // 必须收到真实模型回复；伪造心跳/仅建连判失败。
+        if (!data.reply || !String(data.reply).trim()) {
+          throw new Error("未收到真实模型回复");
+        }
+        // 成本取自当前上游回执，不硬编码。
+        send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { status: "success", reply: data.reply, cost: data.cost },
+        });
       } else {
         send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "未知 op: " + op } });
       }
