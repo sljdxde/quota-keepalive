@@ -51,8 +51,9 @@ func (a *App) discoverViaHost(ctx context.Context, target string) ([]accounts.Di
 			DisplayName    string `json:"displayName"`
 			MaskedIdentity string `json:"maskedIdentity"`
 			Source         struct {
-				ID   string `json:"id"`
-				Kind string `json:"kind"`
+				ID     string `json:"id"`
+				Kind   string `json:"kind"`
+				Health string `json:"health"`
 			} `json:"source"`
 		} `json:"accounts"`
 	}
@@ -68,6 +69,7 @@ func (a *App) discoverViaHost(ctx context.Context, target string) ([]accounts.Di
 			MaskedIdentity: ac.MaskedIdentity,
 			SourceID:       ac.Source.ID,
 			SourceKind:     accounts.SourceKind(ac.Source.Kind),
+			Health:         accounts.SourceHealth(ac.Source.Health),
 		})
 	}
 	return disc, nil

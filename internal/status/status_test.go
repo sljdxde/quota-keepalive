@@ -151,6 +151,27 @@ func TestPlanValidateZeroWrites(t *testing.T) {
 	}
 }
 
+func TestPlanValidateOmitsDisabledAccounts(t *testing.T) {
+	st, svc := setup(t)
+	acc := accounts.NewService(st.DB())
+	if err := acc.SetEnabled(context.Background(), "qoder-cn", "q_1", false); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := svc.PlanValidate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Items) == 0 {
+		t.Fatal("启用的 q_2 仍应进入计划")
+	}
+	for _, item := range plan.Items {
+		if item.AccountID == "q_1" {
+			t.Fatalf("停用账号不得进入执行计划: %+v", item)
+		}
+	}
+}
+
 func TestStatusHasNoScheduleFields(t *testing.T) {
 	_, svc := setup(t)
 	view, _ := svc.Status(context.Background())
