@@ -61,6 +61,51 @@ func TestDiscoverUpsertsAccountsAndSources(t *testing.T) {
 	}
 }
 
+func TestDiscoverDefaultsNewAccountsDisabledAndPreservesExistingState(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := svc.List(ctx, "qoder-cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, acc := range list {
+		if acc.Enabled {
+			t.Fatalf("首次发现账号默认应停用，实际 %+v", acc)
+		}
+	}
+
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PinSource(ctx, "qoder-cn", "q_1", "qs_1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.MarkSourceFailure(ctx, "qoder-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Discover(ctx, "qoder-cn", discovered()); err != nil {
+		t.Fatal(err)
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acc.Enabled {
+		t.Error("重复发现不得改写已有账号的启用状态")
+	}
+	if len(acc.Sources) != 1 || !acc.Sources[0].Pinned {
+		t.Errorf("重复发现不得改写已有来源固定状态: %+v", acc.Sources)
+	}
+	if acc.Sources[0].Health != HealthHealthy {
+		t.Errorf("重复验证成功应把同一来源恢复为健康，实际 %s", acc.Sources[0].Health)
+	}
+}
+
 func TestImportSourceMarkedReadOnly(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()

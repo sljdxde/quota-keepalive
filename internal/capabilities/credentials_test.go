@@ -122,6 +122,23 @@ func TestResolveDeniedEntersCooldown(t *testing.T) {
 	}
 }
 
+func TestPersistRemovesStaleFileCopyAfterKeychainSuccess(t *testing.T) {
+	keychain := newFakeSecretStore()
+	file := newFakeSecretStore()
+	file.values["qka/workbuddy-cn-u_1-s1"] = "stale"
+	svc := newCredService(keychain, file, fixedNow)
+
+	if err := svc.Persist(context.Background(), managedRef(), "fresh"); err != nil {
+		t.Fatalf("保存受管凭据失败: %v", err)
+	}
+	if got := keychain.values["qka/workbuddy-cn-u_1-s1"]; got != "fresh" {
+		t.Errorf("Keychain 未保存最新凭据，实际 %q", got)
+	}
+	if _, ok := file.values["qka/workbuddy-cn-u_1-s1"]; ok {
+		t.Error("Keychain 写入成功后不得保留旧的文件回退副本")
+	}
+}
+
 func TestImportedSourceReadOnly(t *testing.T) {
 	keychain := newFakeSecretStore()
 	file := newFakeSecretStore()

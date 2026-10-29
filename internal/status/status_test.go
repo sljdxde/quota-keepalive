@@ -32,6 +32,11 @@ func setup(t *testing.T) (*store.Store, *Service) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, id := range []string{"q_1", "q_2"} {
+		if err := acc.SetEnabled(context.Background(), "qoder-cn", id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	svc := NewService(st.DB(), func() time.Time { return fixedNow() },
 		func(string) []string { return []string{"checkin", "keepalive"} })

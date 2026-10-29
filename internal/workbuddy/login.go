@@ -38,6 +38,9 @@ const (
 	LoginIdle                LoginStatus = "idle"
 	LoginPending             LoginStatus = "pending"
 	LoginPendingVerification LoginStatus = "pending_verification"
+	LoginVerified            LoginStatus = "verified"
+	LoginReauthRequired      LoginStatus = "reauth_required"
+	LoginRetryable           LoginStatus = "retryable"
 	LoginCancelled           LoginStatus = "cancelled"
 	LoginExpired             LoginStatus = "expired"
 	LoginFailed              LoginStatus = "failed"
@@ -97,7 +100,14 @@ type PendingCredential struct {
 // or source. Implementations must use Keychain/protected-file storage.
 type PendingStore interface {
 	Save(ctx context.Context, sessionID string, payload []byte) error
+	Load(ctx context.Context, sessionID string) ([]byte, error)
 	Delete(ctx context.Context, sessionID string) error
+}
+
+// PendingVerifier verifies a browser-login result without mutating the target
+// application. It only persists an account after read-only checks pass.
+type PendingVerifier interface {
+	Verify(ctx context.Context, credential PendingCredential) VerificationOutcome
 }
 
 // LoginConfig injects network, browser, storage, and timing seams.
@@ -105,6 +115,7 @@ type LoginConfig struct {
 	BaseURL      string
 	HTTPClient   *http.Client
 	PendingStore PendingStore
+	Verifier     PendingVerifier
 	OpenBrowser  func(string) error
 	PollInterval time.Duration
 	Timeout      time.Duration
@@ -122,6 +133,7 @@ type LoginService struct {
 	baseURL      string
 	client       *http.Client
 	store        PendingStore
+	verifier     PendingVerifier
 	openBrowser  func(string) error
 	pollInterval time.Duration
 	timeout      time.Duration
@@ -153,6 +165,7 @@ func NewLoginService(cfg LoginConfig) *LoginService {
 		baseURL:      baseURL,
 		client:       cfg.HTTPClient,
 		store:        cfg.PendingStore,
+		verifier:     cfg.Verifier,
 		openBrowser:  cfg.OpenBrowser,
 		pollInterval: cfg.PollInterval,
 		timeout:      cfg.Timeout,
@@ -169,6 +182,15 @@ func (s *LoginService) Begin(ctx context.Context, target string) (LoginView, err
 	}
 
 	s.mu.Lock()
+	if active := s.sessions[target]; active != nil && active.view.Status == LoginRetryable {
+		sessionID := active.id
+		active.view.Status = LoginPendingVerification
+		active.view.Stage = ""
+		active.view.Message = "正在重试只读验证；尚未创建账号"
+		active.view.CanCancel = false
+		s.mu.Unlock()
+		return s.retryPendingVerification(ctx, target, sessionID), nil
+	}
 	if active := s.sessions[target]; active != nil &&
 		(active.view.Status == LoginPending || active.view.Status == LoginPendingVerification) {
 		view := active.view
@@ -241,6 +263,32 @@ func (s *LoginService) Begin(ctx context.Context, target string) (LoginView, err
 
 	go s.poll(loginCtx, target, sess.id, state.State)
 	return s.Status(context.Background(), target), nil
+}
+
+func (s *LoginService) retryPendingVerification(ctx context.Context, target, sessionID string) LoginView {
+	if s.verifier == nil || s.store == nil {
+		s.applyVerification(target, sessionID, VerificationOutcome{
+			Status: LoginRetryable, Message: "只读验证暂不可用，请稍后重试；未创建账号",
+		})
+		return s.Status(context.Background(), target)
+	}
+	raw, err := s.store.Load(ctx, sessionID)
+	if err != nil {
+		s.applyVerification(target, sessionID, VerificationOutcome{
+			Status: LoginReauthRequired, Message: "待验证登录结果不存在，请重新登录；未创建账号",
+		})
+		return s.Status(context.Background(), target)
+	}
+	var credential PendingCredential
+	if err := json.Unmarshal(raw, &credential); err != nil || credential.SessionID != sessionID {
+		s.deletePending(sessionID)
+		s.applyVerification(target, sessionID, VerificationOutcome{
+			Status: LoginFailed, Message: "待验证登录结果无效，请重新登录；未创建账号",
+		})
+		return s.Status(context.Background(), target)
+	}
+	s.applyVerification(target, sessionID, s.verifier.Verify(ctx, credential))
+	return s.Status(context.Background(), target)
 }
 
 // Status returns the current or most recent login state for a target.
@@ -339,10 +387,45 @@ func (s *LoginService) poll(ctx context.Context, target, sessionID, state string
 	current.view.Stage = ""
 	current.view.Message = "授权已取得，等待只读验证；尚未创建账号"
 	current.view.CanCancel = false
-	if current.cancel != nil {
+	cancel := current.cancel
+	if s.verifier == nil && current.cancel != nil {
 		current.cancel()
 	}
 	s.mu.Unlock()
+
+	if s.verifier == nil {
+		return
+	}
+	verifyCtx, cancelVerify := context.WithTimeout(context.Background(), s.timeout)
+	defer cancelVerify()
+	outcome := s.verifier.Verify(verifyCtx, payload)
+	s.applyVerification(target, sessionID, outcome)
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *LoginService) applyVerification(target, sessionID string, outcome VerificationOutcome) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.sessions[target]
+	if current == nil || current.id != sessionID || current.view.Status != LoginPendingVerification {
+		return
+	}
+	status := outcome.Status
+	switch status {
+	case LoginVerified, LoginReauthRequired, LoginRetryable, LoginFailed:
+	default:
+		status = LoginFailed
+	}
+	message := strings.TrimSpace(outcome.Message)
+	if message == "" {
+		message = "只读验证未通过；未创建账号"
+	}
+	current.view.Status = status
+	current.view.Message = message
+	current.view.Stage = ""
+	current.view.CanCancel = false
 }
 
 func (s *LoginService) finishFromContext(target, sessionID string, err error) {
