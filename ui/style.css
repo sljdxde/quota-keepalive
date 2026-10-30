@@ -624,6 +624,17 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   height: 100%;
   object-fit: contain;
 }
+.provider-icon-mask {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--ink-2);
+  -webkit-mask: var(--provider-icon) center / contain no-repeat;
+  mask: var(--provider-icon) center / contain no-repeat;
+}
+.provider-icon-qoder { --provider-icon: url("provider-icons/qoder.svg"); }
+.provider-icon-opencode { --provider-icon: url("provider-icons/opencode.svg"); }
+.provider-icon-trae { --provider-icon: url("provider-icons/trae.svg"); }
 .provider-title { flex: 1; min-width: 0; }
 .provider-title strong { display: block; font-size: 13px; }
 .provider-title small { display: block; margin-top: 2px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

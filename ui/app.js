@@ -50,6 +50,11 @@
     "minimax-code-global": "provider-icons/minimax.svg",
     codearts: "provider-icons/codearts.svg",
   }
+  const PROVIDER_MASK_ICON_CLASSES = {
+    "provider-icons/qoder.svg": "provider-icon-qoder",
+    "provider-icons/opencode.svg": "provider-icon-opencode",
+    "provider-icons/trae.svg": "provider-icon-trae",
+  }
 
   let snapshot = window.DailyKeepaliveSnapshot || null
   let busy = false
@@ -616,8 +621,11 @@
       ? provider.icon
       : ""
     const iconFile = PROVIDER_ICON_FILES[idKey] || ""
+    const maskClass = nativeIcon ? "" : PROVIDER_MASK_ICON_CLASSES[iconFile] || ""
     const mark = nativeIcon || iconFile
-      ? `<img src="${escapeHtml(nativeIcon || iconFile)}" alt="" loading="lazy">`
+      ? maskClass
+        ? `<span class="provider-icon-mask ${maskClass}" aria-hidden="true"></span>`
+        : `<img src="${escapeHtml(nativeIcon || iconFile)}" alt="" loading="lazy">`
       : `<span>${escapeHtml((provider?.name || "?").slice(0, 1).toUpperCase())}</span>`
     return `<details class="provider${enabled ? "" : " is-off"}${failureClass}" data-provider-id="${escapeHtml(id)}" ${open ? "open" : ""}>
       <summary>
