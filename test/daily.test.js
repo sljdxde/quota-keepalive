@@ -558,16 +558,13 @@ describe.serial("Logs, scheduling, and page", () => {
     }
     const app = await readFile(new URL("ui/app.js", root), "utf8")
     expect(app).toContain("PROVIDER_ICON_FILES")
-    expect(app).toContain("PROVIDER_MASK_ICON_CLASSES")
-    expect(app).toContain("provider-icon-mask")
     expect(app).toContain("qwenwork-enterprise")
     expect(app).not.toContain("LOCAL_PROVIDER_ICONS")
-    const css = await readFile(new URL("ui/style.css", root), "utf8")
-    expect(css).toContain("-webkit-mask: var(--provider-icon)")
-    expect(css).toContain("mask: var(--provider-icon)")
-    expect(css).toContain(".provider-icon-qoder")
-    expect(css).toContain(".provider-icon-opencode")
-    expect(css).toContain(".provider-icon-trae")
+    for (const name of ["qoder.svg", "opencode.svg", "trae.svg"]) {
+      const icon = await readFile(new URL(`ui/provider-icons/${name}`, root), "utf8")
+      expect(icon).not.toContain("currentColor")
+      expect(icon).toMatch(/fill="#[0-9A-F]{6}"/)
+    }
   })
 
   test("keeps detected quota when a later log refresh rewrites the snapshot", async () => {
