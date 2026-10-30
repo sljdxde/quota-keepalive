@@ -1,8 +1,23 @@
+<div align="center">
+
 # quota-keepalive
 
 面向 Magpie 全部已登录供应商的额度签到、真实对话保活、执行留痕和额度趋势页面。
-插件不接管任何供应商的登录，也不会把页面伪装成单一供应商专属功能；登录、模型、
-额度和签到 Hook 仍由各供应商插件维护，本插件负责统一检测、调度、执行和展示。
+
+[![License](https://img.shields.io/badge/License-MIT-3B82F6?style=for-the-badge)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/quota-keepalive?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/quota-keepalive)
+[![Magpie](https://img.shields.io/badge/Magpie-Plugin-0EA5A4?style=for-the-badge)](https://github.com/sljdxde/quota-keepalive)
+[![Unofficial](https://img.shields.io/badge/Status-Unofficial-F59E0B?style=for-the-badge)](#非官方插件声明)
+
+中文 · [English](./README.en.md)
+
+</div>
+
+---
+
+quota-keepalive 不接管任何供应商的登录，也不会把页面伪装成单一供应商专属功能。
+登录、模型、额度和签到 Hook 仍由各供应商插件维护；本插件负责统一检测、调度、
+执行和展示。
 
 > **非官方插件声明**
 >
