@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>额度签到</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="_magpie/bridge.js"></script>
+  <script src="options-writer.js"></script>
+  <script src="quota-format.js"></script>
+  <script src="status.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="page-shell">
+    <header class="hero">
+      <div class="brand">
+        <img class="brand-mark" src="icon.svg" alt="">
+        <div class="brand-copy">
+          <p class="eyebrow">QUOTA KEEPALIVE</p>
+          <h1>额度签到</h1>
+          <p class="lead">检测已登录账号，集中查看签到、额度变化和真实对话保活结果。</p>
+        </div>
+      </div>
+      <div class="hero-tools">
+        <div class="actions" role="group" aria-label="任务操作">
+          <button class="button action-button action-primary" id="detect" type="button">
+            <span class="action-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="7" cy="7" r="3.4"></circle>
+                <path d="M7 1.2v2M7 10.8v2M1.2 7h2M10.8 7h2"></path>
+              </svg>
+            </span>
+            <span>一键检测</span>
+          </button>
+          <button class="button action-button" id="checkin" type="button">
+            <span class="action-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+                <circle cx="8" cy="8" r="6"></circle>
+                <path d="m4.8 8.1 2.1 2.1 4.4-4.4"></path>
+              </svg>
+            </span>
+            <span>全部签到</span>
+          </button>
+          <button class="button action-button action-warm" id="keepalive" type="button">
+            <span class="action-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M2.6 3.2h10.8v7.2H8l-3.1 2.7v-2.7H2.6z"></path>
+                <path d="M5 6.2h1.4L7.5 8l1.2-2.2 1.2 1.5h1.1"></path>
+              </svg>
+            </span>
+            <span>发送保活</span>
+          </button>
+        </div>
+        <button
+          class="refresh-button"
+          id="refresh"
+          type="button"
+          title="刷新全部启用供应商额度"
+          aria-label="刷新全部启用供应商额度"
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="command-bar" id="command-bar" aria-live="polite">
+      <span class="status-dot" id="command-dot"></span>
+      <div class="command-copy">
+        <b id="command-title">准备就绪</b>
+        <span id="command-detail">页面会每 5 秒同步一次本地快照。</span>
+      </div>
+      <time id="snapshot-time"></time>
+    </section>
+
+    <section class="schedule-bar" id="schedule-bar">
+      <div class="schedule-copy">
+        <div class="schedule-title">
+          <p class="eyebrow">AUTOMATION</p>
+          <b>定时任务</b>
+        </div>
+        <span id="schedule-status">默认关闭；开启后会按间隔执行全部供应商任务。</span>
+      </div>
+      <div class="schedule-controls">
+        <label class="switch-field">
+          <input id="schedule-enabled" type="checkbox">
+          <span class="switch-track" aria-hidden="true"><i></i></span>
+          <span>启用</span>
+        </label>
+        <label class="compact-field">
+          <span>每</span>
+          <span class="compact-input">
+            <input id="schedule-minutes" type="number" min="5" max="10080" step="5" inputmode="numeric">
+            <span>分钟</span>
+          </span>
+        </label>
+        <label class="select-field">
+          <select id="schedule-action" aria-label="定时任务内容">
+            <option value="checkin">只签到</option>
+            <option value="keepalive">只保活</option>
+            <option value="all">签到 + 保活</option>
+          </select>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m4 6 4 4 4-4"></path>
+          </svg>
+        </label>
+        <button class="button schedule-save" id="schedule-save" type="button">保存计划</button>
+      </div>
+    </section>
+
+    <section class="summary" id="summary" aria-label="今日摘要"></section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">PROVIDERS</p>
+          <h2>供应商与账号</h2>
+        </div>
+        <div class="section-tools">
+          <span class="section-note" id="provider-count"></span>
+          <span class="section-note">启用项每 1 分钟刷新额度</span>
+          <button class="section-action" id="providers-toggle" type="button" hidden>全部折叠</button>
+        </div>
+      </div>
+      <div class="providers" id="providers"></div>
+      <div class="empty" id="providers-empty" hidden>
+        <b>还没有检测到账号</b>
+        <span>点击“一键检测”，让插件同步 Magpie 当前已登录的供应商。</span>
+      </div>
+    </section>
+
+    <section class="section logs-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">RECENT RUNS</p>
+          <h2>最近执行记录</h2>
+        </div>
+        <span class="section-note" id="log-count"></span>
+      </div>
+      <div class="log-list" id="logs"></div>
+    </section>
+
+    <footer class="footnote">
+      <span>签到与保活状态来自本机插件日志，不包含令牌或模型回复。</span>
+    </footer>
+  </main>
+
+  <div class="confirm-layer" id="confirm-layer" hidden>
+    <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <p class="eyebrow">REAL REQUEST</p>
+      <h2 id="confirm-title">发送真实保活消息？</h2>
+      <p id="confirm-detail">这会为全部已适配供应商的账号发送真实对话，优先尝试近期验证可用且能成功回复的模型；仍可能消耗积分。</p>
+      <div class="confirm-actions">
+        <button class="button" id="confirm-cancel" type="button">取消</button>
+        <button class="button caution" id="confirm-send" type="button">确认发送</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+</body>
+</html>

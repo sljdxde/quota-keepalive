@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quota-keepalive · 值守台</title>
+  <style>
+    :root {
+      --paper:#3ba5b8; --surface:#9dd8e2; --ink:#111c20; --muted:#25434a;
+      --line:#8fbcc5; --line-strong:#56818a; --orange:#075ed1; --orange-soft:#eff8ff;
+      --warn:#a94722; --warn-soft:#fff0e9;
+      --green:#0a5438; --green-soft:#e6efd9; --amber:#754700; --red:#9c2d26;
+      --mono:"SFMono-Regular","Roboto Mono","PingFang SC",monospace;
+      --sans:"DIN Alternate","Helvetica Neue","PingFang SC",sans-serif;
+      --shadow:0 16px 40px rgba(23,27,25,.07);
+    }
+    * { box-sizing:border-box; }
+    html { min-width:320px; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:14px/1.45 var(--sans); }
+    button, input, select { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--orange); outline-offset:2px; }
+    .app { min-height:100vh; }
+    .masthead {
+      display:flex; align-items:center; gap:18px; height:64px; padding:0 26px;
+      border-bottom:1px solid var(--line-strong); background:rgba(242,243,239,.94);
+      position:sticky; top:0; z-index:20; backdrop-filter:blur(12px);
+    }
+    .mark {
+      display:grid; place-items:center; width:34px; height:34px; border-radius:7px;
+      color:#fff; background:var(--ink); font:800 12px/1 var(--mono); letter-spacing:-.06em;
+    }
+    .brand-name { font-weight:760; letter-spacing:.08em; text-transform:uppercase; }
+    .prototype {
+      padding:3px 7px; border:1px solid #8db4e0; border-radius:3px;
+      color:#0b4592; background:var(--orange-soft); font:700 9px/1.4 var(--mono); letter-spacing:.08em;
+    }
+    .mast-meta { display:flex; align-items:center; gap:14px; margin-left:auto; color:var(--muted); font:11px/1.3 var(--mono); }
+    .clock { min-width:122px; color:var(--ink); font-weight:700; }
+    .bus {
+      display:grid; grid-template-columns:auto minmax(180px,280px) minmax(165px,1fr) auto;
+      align-items:center; gap:16px; padding:12px 26px;
+      border-bottom:1px solid var(--line); background:var(--surface);
+    }
+    .power-wrap { display:flex; align-items:center; gap:10px; }
+    .power-label strong { display:block; font-size:13px; }
+    .power-label span { display:block; color:var(--muted); font:10px/1.2 var(--mono); }
+    .master {
+      width:44px; height:24px; border:1px solid #151917; border-radius:2px; padding:2px;
+      background:#d8ddd7; text-align:left;
+    }
+    .master:before { content:""; display:block; width:18px; height:18px; background:#fff; border:1px solid #a8afa9; transition:transform .18s ease; }
+    .master[aria-pressed="true"] { background:var(--green); border-color:var(--green); }
+    .master[aria-pressed="true"]:before { transform:translateX(18px); border-color:#fff; }
+    .interval { display:flex; align-items:center; gap:7px; padding-left:16px; border-left:1px solid var(--line); }
+    .interval label { color:var(--muted); font:10px var(--mono); }
+    .interval input {
+      width:44px; height:30px; padding:0 6px; border:1px solid var(--line-strong); border-radius:2px;
+      color:var(--ink); background:#f2fdff; font:700 12px var(--mono); text-align:center;
+    }
+    .interval select {
+      height:30px; padding:0 22px 0 7px; border:1px solid var(--line-strong); border-radius:2px;
+      color:var(--ink); background:#f2fdff; font:700 11px var(--mono);
+    }
+    .next-run { display:flex; align-items:center; gap:12px; min-width:0; }
+    .next-run .next-time { color:var(--ink); font:800 18px/1 var(--mono); }
+    .next-run .next-copy { min-width:0; color:var(--muted); font-size:11px; }
+    .next-run .next-copy b { display:block; color:var(--ink); font-size:11px; font-weight:700; }
+    .bar { width:2px; height:32px; background:var(--orange); }
+    .actions { display:flex; gap:6px; justify-content:flex-end; }
+    .action {
+      min-height:40px; padding:0 12px; border:1px solid var(--line-strong); border-radius:2px;
+      color:var(--ink); background:#f2fdff; font-size:12px; font-weight:700;
+    }
+    .action:hover { border-color:var(--ink); }
+    .action.primary { color:#fff; border-color:var(--orange); background:var(--orange); }
+    .action.warn { color:var(--warn); border-color:#e6aa91; background:var(--warn-soft); }
+    .workspace {
+      display:grid; grid-template-columns:minmax(0,1fr) 286px; min-height:calc(100vh - 113px);
+    }
+    .roster { padding:18px 20px 44px 26px; min-width:0; }
+    .section-label {
+      display:flex; align-items:center; justify-content:space-between;
+      margin:0 0 9px; color:var(--muted); font:700 9px/1.2 var(--mono); letter-spacing:.11em;
+    }
+    .section-label span:last-child { letter-spacing:0; font-weight:500; text-transform:none; }
+    .provider-line {
+      border-top:1px solid var(--line-strong); background:var(--surface);
+    }
+    .provider-line:last-child { border-bottom:1px solid var(--line-strong); }
+    .provider-head {
+      display:grid; grid-template-columns:36px minmax(160px,1.2fr) minmax(165px,1fr) 92px 68px 28px;
+      align-items:center; gap:11px; min-height:64px; padding:9px 10px;
+    }
+    .provider-head:hover { background:#b9e3ea; }
+    .provider-icon { width:30px; height:30px; border-radius:5px; display:grid; place-items:center; overflow:hidden; }
+    .provider-icon svg { width:100%; height:100%; }
+    .provider-name { min-width:0; }
+    .provider-name strong { display:block; font-size:14px; }
+    .provider-name small { display:block; margin-top:2px; color:var(--muted); font:10px/1.35 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .provider-cap { color:var(--muted); font-size:11px; }
+    .provider-cap b { display:block; color:var(--ink); font:700 12px var(--mono); }
+    .provider-state { font:700 10px/1.2 var(--mono); text-align:right; white-space:nowrap; }
+    .provider-state.ok { color:var(--green); }
+    .provider-state.warn { color:var(--amber); }
+    .toggle {
+      position:relative; width:38px; height:22px; border:1px solid var(--line-strong); border-radius:2px;
+      padding:2px; background:#e2e6e0;
+    }
+    .toggle:before { content:""; display:block; width:16px; height:16px; background:#fff; border:1px solid #adb3ae; transition:transform .18s ease; }
+    .toggle[aria-pressed="true"] { border-color:var(--green); background:var(--green); }
+    .toggle[aria-pressed="true"]:before { transform:translateX(16px); border-color:#fff; }
+    .expand { width:28px; height:28px; border:0; color:var(--muted); background:transparent; font-size:17px; transition:transform .18s ease; }
+    .provider-line.open .expand { transform:rotate(90deg); }
+    .account-table { display:none; border-top:1px solid var(--line); }
+    .provider-line.open .account-table { display:block; }
+    .account {
+      display:grid; grid-template-columns:minmax(170px,1.2fr) 106px minmax(160px,1fr) 106px;
+      align-items:center; gap:12px; min-height:74px; padding:10px 12px 10px 47px;
+      border-bottom:1px solid #83bcc7; background:#c9ebf0;
+    }
+    .account:last-child { border-bottom:0; }
+    .provider-line.off .account { color:#89908b; background:#f7f8f5; }
+    .account-id strong { display:block; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .account-id small { display:block; margin-top:3px; color:var(--muted); font-size:10px; }
+    .last-result { color:var(--muted); font:10px/1.4 var(--mono); }
+    .last-result b { display:block; color:var(--green); font-size:10.5px; }
+    .last-result.warn b { color:var(--amber); }
+    .quota-cell { min-width:0; }
+    .quota-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+    .quota-top strong { font:700 11px var(--mono); white-space:nowrap; }
+    .quota-top small { color:var(--muted); font-size:9px; white-space:nowrap; }
+    .spark { display:block; width:100%; height:24px; margin-top:4px; overflow:visible; }
+    .spark .guide { stroke:#dde1dc; stroke-width:1; }
+    .spark .path { fill:none; stroke:var(--orange); stroke-width:1.6; vector-effect:non-scaling-stroke; stroke-dasharray:240; stroke-dashoffset:240; animation:draw 1.3s .25s forwards ease-out; }
+    .spark .end { fill:var(--orange); }
+    .account-controls { display:flex; flex-direction:column; gap:5px; align-items:stretch; }
+    .task-button {
+      display:flex; justify-content:space-between; align-items:center; min-height:28px;
+      padding:0 7px; border:1px solid var(--line); border-radius:2px; background:#f7f8f5;
+      color:var(--muted); font:10.5px/1 var(--mono);
+    }
+    .task-button b { color:var(--ink); font-size:10px; }
+    .task-button[aria-pressed="true"] { color:var(--green); border-color:#a7ceb7; background:var(--green-soft); }
+    .task-button[aria-pressed="true"] b { color:var(--green); }
+    .task-button:disabled { opacity:.42; cursor:not-allowed; }
+    .timeline {
+      min-width:0; border-left:1px solid var(--line-strong); background:#9fd4de;
+    }
+    .timeline-inner { position:sticky; top:113px; padding:18px 16px; }
+    .timeline-title { display:flex; justify-content:space-between; align-items:baseline; }
+    .timeline-title h2 { margin:0; font-size:14px; }
+    .timeline-title span { color:var(--muted); font:10px var(--mono); }
+    .run-status {
+      margin-top:12px; padding:12px; border:1px solid var(--line-strong); background:var(--surface);
+    }
+    .run-status .status-top { display:flex; align-items:center; gap:7px; font:700 10px var(--mono); text-transform:uppercase; }
+    .signal-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(19,122,80,.1); }
+    .run-status strong { display:block; margin-top:7px; font-size:15px; }
+    .run-status p { margin:4px 0 0; color:var(--muted); font-size:10.5px; }
+    .run-scale { display:grid; grid-template-columns:repeat(12,1fr); gap:3px; margin-top:12px; }
+    .run-scale i { height:26px; border:1px solid #c8cec7; background:#f9faf7; }
+    .run-scale i.done { border-color:var(--green); background:#cde6d7; }
+    .run-scale i.active { border-color:var(--orange); background:var(--orange); }
+    .run-scale i.error { border-color:var(--red); background:#f4d3ce; }
+    .timeline-list { margin-top:16px; display:grid; gap:0; }
+    .event {
+      position:relative; display:grid; grid-template-columns:38px minmax(0,1fr); gap:8px;
+      padding:9px 0 11px; border-bottom:1px solid #cfd4ce;
+    }
+    .event:before {
+      content:""; position:absolute; left:47px; top:30px; bottom:-1px; width:1px; background:#cfd4ce;
+    }
+    .event:last-child:before { display:none; }
+    .event time { color:var(--muted); font:9px/1.4 var(--mono); }
+    .event-copy { position:relative; padding-left:12px; min-width:0; }
+    .event-copy:before {
+      content:""; position:absolute; left:0; top:4px; width:6px; height:6px;
+      border-radius:50%; background:var(--green); box-shadow:0 0 0 2px #e9ebe6;
+    }
+    .event.warn .event-copy:before { background:var(--amber); }
+    .event.queue .event-copy:before { background:var(--orange); }
+    .event-copy strong { display:block; font-size:11px; }
+    .event-copy span { display:block; color:var(--muted); font-size:10px; margin-top:2px; }
+    .footnote { margin-top:16px; color:var(--muted); font:9.5px/1.5 var(--mono); }
+    .toast {
+      position:fixed; left:50%; bottom:18px; transform:translate(-50%,20px); z-index:80;
+      max-width:calc(100% - 24px); padding:10px 14px; border:1px solid #151917;
+      color:#fff; background:#151917; font:11px/1.4 var(--mono); opacity:0; pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+    @keyframes draw { to { stroke-dashoffset:0; } }
+    @media (prefers-reduced-motion:reduce) {
+      *, *:before, *:after { animation:none !important; transition:none !important; }
+    }
+    @media (max-width:1050px) {
+      .bus { grid-template-columns:auto 1fr auto; }
+      .next-run { grid-column:1 / -1; padding-top:10px; border-top:1px solid var(--line); }
+      .workspace { grid-template-columns:1fr; }
+      .timeline { border-left:0; border-top:1px solid var(--line-strong); }
+      .timeline-inner { position:static; }
+    }
+    @media (max-width:760px) {
+      .masthead { height:auto; min-height:56px; padding:10px 14px; flex-wrap:wrap; }
+      .mast-meta { margin-left:0; width:100%; justify-content:space-between; }
+      .bus { grid-template-columns:1fr; padding:12px 14px; }
+      .interval { padding-left:0; border-left:0; }
+      .next-run { grid-column:auto; }
+      .actions { display:grid; grid-template-columns:repeat(3,1fr); }
+      .action { min-height:44px; padding:0 7px; }
+      .roster { padding:14px 0 32px; }
+      .section-label { padding:0 14px; }
+      .provider-head { grid-template-columns:32px minmax(0,1fr) 62px 28px; padding:10px 14px; }
+      .provider-cap { display:none; }
+      .provider-state { grid-column:2; text-align:left; margin-top:-7px; }
+      .provider-head .toggle { grid-column:3; grid-row:1 / span 2; }
+      .expand { grid-column:4; grid-row:1 / span 2; }
+      .account { grid-template-columns:1fr 1fr; padding:11px 14px; }
+      .account-id { grid-column:1 / -1; }
+      .quota-cell { grid-column:1 / -1; }
+      .last-result { grid-column:1; }
+      .account-controls { grid-column:2; }
+      .timeline-inner { padding:16px 14px; }
+    }
+    .prototype, .power-label span, .mast-meta, .interval label, .interval select,
+    .next-run .next-copy, .next-run .next-copy b, .section-label, .provider-name small,
+    .provider-cap, .provider-state, .account-id small, .last-result, .last-result b,
+    .quota-top strong, .quota-top small, .task-button, .task-button b, .timeline-title span,
+    .run-status .status-top, .run-status p, .event time, .event-copy strong, .event-copy span,
+    .footnote, .toast { font-size:12px; }
+    .action.primary { color:#fff; }
+    .provider-state.warn, .last-result.warn b { color:#784a00; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="masthead">
+      <div class="mark">QK</div>
+      <strong class="brand-name">Quota Keepalive</strong>
+      <span class="prototype">交互原型 · 未接后台</span>
+      <div class="mast-meta">
+        <span>2026.10.30 北京</span>
+        <span class="clock" id="clock">10:18:42</span>
+      </div>
+    </header>
+
+    <section class="bus" aria-label="统一调度">
+      <div class="power-wrap">
+        <button class="master" id="master" type="button" aria-pressed="true" aria-label="启用统一调度"></button>
+        <span class="power-label"><strong>统一调度</strong><span id="master-copy">已启用</span></span>
+      </div>
+      <div class="interval">
+        <label for="every">每</label>
+        <input id="every" type="number" min="1" max="24" value="1" inputmode="numeric">
+        <select id="unit" aria-label="时间单位">
+          <option value="hour">小时</option>
+          <option value="minute">分钟</option>
+        </select>
+        <label>执行一次</label>
+      </div>
+      <div class="next-run">
+        <span class="bar"></span>
+        <div>
+          <span class="next-time" id="next-time">11:18</span>
+          <div class="next-copy"><b>下次巡检</b>8 个供应商 · 12 个账号 · 签到优先</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="action" id="detect" type="button">一键检测</button>
+        <button class="action primary" id="checkin-all" type="button">全部签到</button>
+        <button class="action warn" id="keepalive-all" type="button">全部保活</button>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="roster">
+        <div class="section-label"><span>PROVIDER LINES / 供应商线路</span><span id="roster-count">8 条线路 · 12 个账号</span></div>
+        <div id="providers"></div>
+      </section>
+
+      <aside class="timeline" aria-label="执行时间线">
+        <div class="timeline-inner">
+          <div class="timeline-title"><h2>执行时间线</h2><span id="run-count">6 条</span></div>
+          <div class="run-status">
+            <div class="status-top"><span class="signal-dot"></span><span id="run-state">上次完成</span></div>
+            <strong id="run-title">签到成功 7 / 12</strong>
+            <p>保活 0 次 · 失败 0 · 最慢 1.3 秒</p>
+            <div class="run-scale" aria-hidden="true">
+              <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+          <div class="timeline-list" id="events"></div>
+          <p class="footnote">额度折线来自当前快照的历史采样；没有第二次采样时显示单点，不推算变化。</p>
+        </div>
+      </aside>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const providers = [
+      {id:"workbuddy-ai",name:"WorkBuddy AI",icon:"wbai",enabled:false,checkin:false,keepalive:false,model:"Hy3",accounts:[
+        {label:"yu***@gmail.com",result:"none",quota:"100 / 100",note:"仅展示",history:[100,99.97,99.97,99.97,77.14,32.15,0,0]}
+      ]},
+      {id:"workbuddy",name:"WorkBuddy",icon:"wb",enabled:true,checkin:true,keepalive:true,model:"Hy3",accounts:[
+        {label:"睡懒觉的薛定谔",result:"claimed",quota:"1012.84 / 3511",note:"+100 · 连续 20 天",history:[70.97,70.87,70.69,70.62,70.55,70.48,70.42,70.42,70.31,70.31,71.15,71.15]},
+        {label:"189****7198",result:"claimed",quota:"0 / 2200",note:"+100 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"zcode",name:"ZCode",icon:"zcode",enabled:true,checkin:true,keepalive:false,model:"GLM-5.3",accounts:[
+        {label:"ZCode",result:"none",quota:"1599 / 2000",note:"周额度 1599 / 10000",history:[44.2,88.84,67.9,79.28,24.85,84.97,21,84.2,20.05,84.01,20.05,84.01]}
+      ]},
+      {id:"qoder-cn",name:"Qoder CN",icon:"qoder",enabled:true,checkin:true,keepalive:false,model:"Qwen3.8-Flash",accounts:[
+        {label:"019f06b7-9...3e6b1f",result:"done",quota:"400 / 400",note:"服务端确认",history:[100,100,90.2,60,35.8,9.6,0,0,20,20,25,25]}
+      ]},
+      {id:"opencode-zen-free",name:"OpenCode Zen Free",icon:"zen",enabled:false,checkin:false,keepalive:false,model:"Big Pickle",accounts:[
+        {label:"account-1",result:"none",quota:"额度待检测",note:"仅展示",history:[]}
+      ]},
+      {id:"trae-cn",name:"Trae CN",icon:"trae",enabled:true,checkin:true,keepalive:false,model:"Seed-2.1-Turbo",accounts:[
+        {label:"用户1029134478",result:"ineligible",quota:"额度待检测",note:"设备校验不符合条件",history:[37.75,34.77,31.59,26.28,21.51,15.99,13.91,10.75,5.27,3.07,0,0]},
+        {label:"用户2507796751",result:"ineligible",quota:"223.1 / 2500",note:"稍后再试 (9074)",history:[96.04,95.75,95.42,95.17,94.86,94.53,94.13,92.88,92.28,91.19,91.08,91.08]}
+      ]},
+      {id:"minimax-code",name:"MiniMax Code",icon:"minimax",enabled:true,checkin:true,keepalive:false,model:"M3.1-Flash",accounts:[
+        {label:"MiniMax857156",result:"claimed",quota:"0.08 / 800",note:"+400 · 连续 2 天",history:[99.98,99.99]},
+        {label:"MiniMax687749",result:"claimed",quota:"0 / 800",note:"+400 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"codearts",name:"CodeArts",icon:"codearts",enabled:true,checkin:true,keepalive:false,model:"DeepSeek-V4.1-Flash",accounts:[
+        {label:"iam::49b62...749283",result:"claimed",quota:"615 / 4700",note:"+100 积分",history:[96.11,95.17,94.31,93.36,92,90.96,90.16,89.44,88.49,87.82,87.35,86.92]},
+        {label:"iam::01a18...284743",result:"claimed",quota:"0 / 4700 · 200 即将过期",note:"+100 积分",history:[100,100]}
+      ]}
+    ];
+    const initialEvents = [
+      {time:"10:05",title:"检测完成",detail:"8 个供应商 · 12 个账号",tone:""},
+      {time:"09:34",title:"CodeArts 签到成功",detail:"2 / 2 · 服务端确认",tone:""},
+      {time:"09:34",title:"Qoder CN 签到成功",detail:"1 / 1 · 服务端确认",tone:""},
+      {time:"09:34",title:"Trae CN 未签到",detail:"2 个账号不符合设备条件",tone:"warn"},
+      {time:"07:43",title:"MiniMax Code 签到成功",detail:"2 / 2 · 各 +400",tone:""},
+      {time:"07:43",title:"WorkBuddy 签到成功",detail:"2 / 2 · 各 +100",tone:""}
+    ];
+    const icons = {
+      wbai:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#2563EB"/><path d="M16 5.5l2.9 7.6 7.6 2.9-7.6 2.9-2.9 7.6-2.9-7.6L5.5 16l7.6-2.9z" fill="#fff"/><circle cx="24.5" cy="7.5" r="2" fill="#93C5FD"/></svg>',
+      wb:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0EA371"/><path d="M5.5 16h5l3-8 4.5 16 3-8h5.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      zcode:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#171717"/><path d="M8.5 8.5h15l-9.4 11h9.4v4h-15l9.4-11H8.5z" fill="#fff"/></svg>',
+      qoder:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#F05A28"/><circle cx="15" cy="15" r="7.5" fill="none" stroke="#fff" stroke-width="3"/><path d="M18.5 19.5L24 25" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>',
+      zen:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#18181B"/><path d="M8 11l6 5-6 5" fill="none" stroke="#7CF7C4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 21h7" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/></svg>',
+      trae:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#111"/><path d="M7 9h18L7 23z" fill="#37E0B0"/><path d="M16 9h9v9z" fill="#fff"/></svg>',
+      minimax:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#E5482F"/><path d="M6 23V10l6 7 4-7 4 7 6-7v13" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      codearts:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#CF0A2C"/><path d="M23.5 10.5a9 9 0 100 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><path d="M14 13l5 3-5 3z" fill="#fff"/></svg>'
+    };
+    const label = {claimed:"已签到",done:"服务端确认",ineligible:"不符合条件",none:"待执行"};
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    let events = [...initialEvents];
+    let runTick = 0;
+    const $ = (id) => document.getElementById(id);
+
+    function spark(history) {
+      if (!history.length) return `<svg class="spark" viewBox="0 0 150 24" preserveAspectRatio="none"><line class="guide" x1="0" y1="19" x2="150" y2="19"/><text x="2" y="13" fill="#8a928c" font-size="8" font-family="monospace">等待采样</text></svg>`;
+      const min = Math.min(...history), max = Math.max(...history), span = max - min || 1;
+      const pts = history.map((v, i) => [i / Math.max(1, history.length - 1) * 146 + 2, 21 - ((v - min) / span) * 17]);
+      const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+      const last = pts.at(-1);
+      return `<svg class="spark" viewBox="0 0 150 24" preserveAspectRatio="none" aria-label="额度历史折线">
+        <line class="guide" x1="2" y1="21" x2="148" y2="21"/>
+        <path class="path" d="${d}"/>
+        <circle class="end" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.3"/>
+      </svg>`;
+    }
+
+    function render() {
+      $("providers").innerHTML = providers.map((p, pi) => {
+        const claimed = p.accounts.filter(a => a.result === "claimed" || a.result === "done").length;
+        const failed = p.accounts.filter(a => a.result === "ineligible").length;
+        return `<article class="provider-line ${pi === 1 ? "open" : ""} ${p.enabled ? "" : "off"}" data-provider="${p.id}">
+          <div class="provider-head">
+            <span class="provider-icon">${icons[p.icon]}</span>
+            <div class="provider-name"><strong>${esc(p.name)}</strong><small>${p.accounts.length} 个账号 · ${p.keepalive ? "签到 + 保活" : p.checkin ? "签到" : "仅展示"} · ${esc(p.model)}</small></div>
+            <div class="provider-cap"><b>${claimed}/${p.accounts.length}</b>${failed ? `${failed} 个需处理` : "服务端确认"}</div>
+            <div class="provider-state ${failed ? "warn" : claimed ? "ok" : ""}">${failed ? "需处理" : claimed ? "已签到" : "待执行"}</div>
+            <button class="toggle provider-toggle" type="button" aria-pressed="${p.enabled}" aria-label="${p.enabled ? "停用" : "启用"} ${esc(p.name)}"></button>
+            <button class="expand" type="button" aria-label="展开账号">›</button>
+          </div>
+          <div class="account-table">
+            ${p.accounts.map((a, ai) => `<div class="account">
+              <div class="account-id"><strong>${esc(a.label)}</strong><small>账号 ${ai + 1} · ${esc(a.note)}</small></div>
+              <div class="last-result ${a.result === "ineligible" ? "warn" : ""}"><b>${label[a.result]}</b>最近状态</div>
+              <div class="quota-cell"><div class="quota-top"><strong>${esc(a.quota)}</strong><small>${a.history.length > 1 ? "额度轨迹" : "采样 1 次"}</small></div>${spark(a.history)}</div>
+              <div class="account-controls">
+                <button class="task-button account-checkin" data-account="${pi}-${ai}" type="button" aria-pressed="${a.checkinEnabled !== false && p.checkin}" ${p.checkin ? "" : "disabled"}><span>签到</span><b>${a.checkinEnabled !== false && p.checkin ? "开" : "关"}</b></button>
+                <button class="task-button account-keepalive" data-account="${pi}-${ai}" type="button" aria-pressed="${a.keepaliveEnabled === true}" ${p.keepalive ? "" : "disabled"}><span>保活</span><b>${a.keepaliveEnabled === true ? "开" : "关"}</b></button>
+              </div>
+            </div>`).join("")}
+          </div>
+        </article>`;
+      }).join("");
+      renderEvents();
+      updateNext();
+    }
+
+    function renderEvents() {
+      $("events").innerHTML = events.slice(0, 7).map(e => `<div class="event ${e.tone || ""}">
+        <time>${esc(e.time)}</time><div class="event-copy"><strong>${esc(e.title)}</strong><span>${esc(e.detail)}</span></div>
+      </div>`).join("");
+      $("run-count").textContent = `${events.length} 条`;
+    }
+
+    function nowText() {
+      return new Intl.DateTimeFormat("zh-CN", {hour:"2-digit", minute:"2-digit", hour12:false}).format(new Date());
+    }
+
+    function updateNext() {
+      const n = Math.max(1, Math.min(24, Number($("every").value) || 1));
+      const unit = $("unit").value;
+      const ms = (unit === "hour" ? 3600000 : 60000) * n;
+      const at = new Date(Date.now() + ms);
+      $("next-time").textContent = new Intl.DateTimeFormat("zh-CN", {hour:"2-digit", minute:"2-digit", hour12:false}).format(at);
+      document.querySelector(".next-copy").innerHTML = `<b>下次巡检</b>${n} ${unit === "hour" ? "小时" : "分钟"}后 · 8 个供应商 · 12 个账号`;
+    }
+
+    function toast(message) {
+      const box = $("toast");
+      box.textContent = message;
+      box.classList.add("show");
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => box.classList.remove("show"), 3000);
+    }
+
+    function addEvent(title, detail, tone = "") {
+      events.unshift({time:nowText(), title, detail, tone});
+      renderEvents();
+    }
+
+    function queueAction(action) {
+      const names = {detect:"一键检测", checkin:"全部签到", keepalive:"全部保活"};
+      addEvent(`${names[action]}已加入原型队列`, "交互演示 · 不会发送真实请求", "queue");
+      toast(`${names[action]}：原型已记录操作，未连接后台。`);
+    }
+
+    $("providers").addEventListener("click", (event) => {
+      const provider = event.target.closest(".provider-line");
+      if (!provider) return;
+      const index = providers.findIndex(p => p.id === provider.dataset.provider);
+      if (event.target.closest(".expand")) {
+        provider.classList.toggle("open");
+        return;
+      }
+      if (event.target.closest(".provider-toggle")) {
+        providers[index].enabled = !providers[index].enabled;
+        provider.classList.toggle("off", !providers[index].enabled);
+        event.target.setAttribute("aria-pressed", String(providers[index].enabled));
+        addEvent(`${providers[index].name} 已${providers[index].enabled ? "启用" : "停用"}`, "供应商总开关", providers[index].enabled ? "" : "warn");
+        return;
+      }
+      const task = event.target.closest(".task-button");
+      if (task) {
+        const [pi, ai] = task.dataset.account.split("-").map(Number);
+        if (!providers[pi].enabled) {
+          toast("请先启用这个供应商。");
+          return;
+        }
+        const isCheckin = task.classList.contains("account-checkin");
+        const account = providers[pi].accounts[ai];
+        const key = isCheckin ? "checkinEnabled" : "keepaliveEnabled";
+        const next = !(isCheckin ? account.checkinEnabled !== false : account.keepaliveEnabled === true);
+        account[key] = next;
+        task.setAttribute("aria-pressed", String(next));
+        task.querySelector("b").textContent = next ? "开" : "关";
+        addEvent(`${providers[pi].name} · ${account.label}`, `${isCheckin ? "签到" : "保活"}已${next ? "开启" : "关闭"}`, next ? "" : "warn");
+      }
+    });
+
+    $("master").addEventListener("click", (event) => {
+      const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
+      event.currentTarget.setAttribute("aria-pressed", String(on));
+      $("master-copy").textContent = on ? "已启用" : "已停用";
+      addEvent(`统一调度${on ? "启用" : "停用"}`, on ? "将按设定间隔巡检" : "不会自动执行", on ? "" : "warn");
+    });
+    $("every").addEventListener("input", updateNext);
+    $("unit").addEventListener("change", updateNext);
+    $("detect").addEventListener("click", () => queueAction("detect"));
+    $("checkin-all").addEventListener("click", () => queueAction("checkin"));
+    $("keepalive-all").addEventListener("click", () => queueAction("keepalive"));
+    setInterval(() => {
+      $("clock").textContent = new Intl.DateTimeFormat("zh-CN", {hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false}).format(new Date());
+      runTick++;
+    }, 1000);
+    render();
+  </script>
+</body>
+</html>

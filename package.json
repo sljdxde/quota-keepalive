@@ -1,0 +1,67 @@
+{
+  "name": "quota-keepalive",
+  "version": "0.1.0",
+  "description": "Multi-provider quota inventory, check-in, keepalive scheduling, history, and quota trends for Magpie",
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "opencode",
+    "opencode-plugin",
+    "quota",
+    "checkin",
+    "keepalive"
+  ],
+  "author": "sljdxde",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sljdxde/quota-keepalive.git"
+  },
+  "homepage": "https://github.com/sljdxde/quota-keepalive#readme",
+  "bugs": {
+    "url": "https://github.com/sljdxde/quota-keepalive/issues"
+  },
+  "type": "module",
+  "main": "./index.js",
+  "exports": "./index.js",
+  "bin": {
+    "daily-keepalive-log": "./bin/daily-keepalive-log.js"
+  },
+  "magpie": {
+    "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iOCIgeTE9IjQiIHgyPSI1NiIgeTI9IjYwIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIHN0b3AtY29sb3I9IiMwQjIwMjkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTczQzQ2Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJnb2xkIiB4MT0iMzgiIHkxPSIzOCIgeDI9IjU2IiB5Mj0iNTYiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agc3RvcC1jb2xvcj0iI0ZGRDI3QSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNFNzlCMzgiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSI1OCIgaGVpZ2h0PSI1OCIgcng9IjE4IiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxjaXJjbGUgY3g9IjMwLjUiIGN5PSIzMSIgcj0iMTcuMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRjhGMURFIiBzdHJva2Utd2lkdGg9IjcuNCIKICAgICAgICAgIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWRhc2hhcnJheT0iODggMjEiIHRyYW5zZm9ybT0icm90YXRlKDM4IDMwLjUgMzEpIi8+CiAgPHBhdGggZD0iTTM0LjUgMzYuNWM1LjMgNC40IDEwLjIgOS4yIDE5LjUgMTguMyIKICAgICAgICBmaWxsPSJub25lIiBzdHJva2U9InVybCgjZ29sZCkiIHN0cm9rZS13aWR0aD0iNi4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+Cg==",
+    "page": {
+      "title": "Quota Keepalive",
+      "titles": {
+        "zh": "额度签到",
+        "zh-TW": "額度簽到",
+        "ja": "クォータ・キープアライブ",
+        "de": "Kontingent & Keepalive"
+      },
+      "file": "ui/index.html",
+      "icon": "ui/icon.svg"
+    },
+    "permissions": [
+      "providers:list",
+      "usage:summary"
+    ]
+  },
+  "files": [
+    "index.js",
+    "src",
+    "bin",
+    "ui",
+    "README.md",
+    "LICENSE",
+    "!ui/data.js",
+    "!ui/data.json"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "logs": "node ./bin/daily-keepalive-log.js",
+    "prepublishOnly": "bun test"
+  },
+  "dependencies": {},
+  "publishConfig": {
+    "access": "public"
+  }
+}
