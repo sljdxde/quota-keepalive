@@ -180,18 +180,28 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   background: color-mix(in srgb, var(--green) 8%, var(--card));
 }
 .refresh-button {
-  display: inline-grid;
-  place-items: center;
-  width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
   height: 38px;
   flex: none;
-  padding: 0;
+  padding: 0 11px;
   border: 1px solid var(--line);
-  border-radius: 50%;
-  color: var(--muted);
+  border-radius: 9px;
+  color: var(--ink-2);
   background: color-mix(in srgb, var(--bg) 62%, var(--card));
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: color .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.refresh-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
 }
 .refresh-button:hover:not(:disabled) {
   color: var(--accent);
@@ -200,8 +210,8 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .refresh-button:disabled { cursor: default; opacity: .62; }
-.refresh-button svg > * { transform-box: view-box; transform-origin: 50% 50%; }
-.refresh-button.spin svg > * { animation: spin .8s linear infinite; }
+.refresh-button .refresh-icon { transform-origin: 50% 50%; }
+.refresh-button.spin .refresh-icon { animation: spin .8s linear infinite; }
 .provider-refresh {
   display: inline-grid;
   place-items: center;
@@ -1138,8 +1148,9 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
 @media (max-width: 760px) {
   .page-shell { width: min(100% - 20px, 680px); padding-top: 12px; }
   .hero { flex-direction: column; padding: 18px; }
-  .hero-tools { width: 100%; align-items: stretch; }
-  .actions { width: 100%; }
+  .hero-tools { width: 100%; align-items: stretch; flex-wrap: wrap; }
+  .actions { width: 100%; flex-basis: 100%; }
+  .refresh-button { margin-left: auto; }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-copy { display: grid; gap: 2px; }
   .command-copy span { white-space: normal; }

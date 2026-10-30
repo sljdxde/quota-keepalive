@@ -129,7 +129,7 @@ enable automatic keepalive by default.
   they do not send a request immediately.
 - Account **Run check-in** / **Run keepalive** buttons: execute one account now.
   Manual keepalive asks for confirmation and still requires the provider to be enabled.
-- Circular refresh: refresh all enabled providers; each provider row also has a
+- **Refresh quota**: refresh all enabled providers; each provider row also has a
   provider-only refresh button.
 - **Save schedule**: set the shared interval and action type.
 - **Short probe / Long context**: choose the request shape used by keepalive.
