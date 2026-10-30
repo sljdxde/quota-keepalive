@@ -1,6 +1,6 @@
 {
   "name": "quota-keepalive",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-provider quota inventory, check-in, keepalive scheduling, history, and quota trends for Magpie",
   "keywords": [
     "magpie",
