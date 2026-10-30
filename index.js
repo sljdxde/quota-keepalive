@@ -11,6 +11,12 @@ import { snapshotWarning, writeDailySnapshot } from "./src/snapshot.js"
 import { createProviderCheckin } from "./src/checkin-runner.js"
 import { createWorkBuddyKeepalive } from "./src/workbuddy.js"
 import { readCommand } from "./src/commands.js"
+import {
+  nextRunAfter,
+  readSchedule,
+  scheduleSignature,
+  writeSchedule,
+} from "./src/schedule.js"
 
 const LOG_STATUSES = new Set(["started", "success", "failed", "skipped"])
 const SCHEDULER = Symbol.for("quota-keepalive.scheduler")
@@ -20,32 +26,85 @@ const REFRESH_INTERVAL_MS = 60_000
 
 export function stopScheduler() {
   const previous = globalThis[SCHEDULER]
-  if (previous?.timer) clearInterval(previous.timer)
+  if (previous?.timer) clearTimeout(previous.timer)
+  if (previous) previous.stopped = true
   if (previous) delete globalThis[SCHEDULER]
 }
 
-export function startScheduler({ config, checkin, keepalive }) {
+function warnSchedule(action, error) {
+  console.warn(`[quota-keepalive] ${action}: ${error?.message || error}`)
+}
+
+export async function startScheduler({
+  config,
+  checkin,
+  keepalive,
+  now = () => Date.now(),
+  read = readSchedule,
+  persist = writeSchedule,
+  run = runCommand,
+  log = appendDailyLog,
+  snapshot = writeDailySnapshot,
+}) {
   // Every behavior setting must participate in the signature. Otherwise a
   // model or provider/account preference change would leave the running timer
   // on the previous closures and configuration.
-  const signature = JSON.stringify(config)
+  const signature = scheduleSignature(config)
   const previous = globalThis[SCHEDULER]
   if (previous?.signature === signature) return
   stopScheduler()
   if (!config.scheduleEnabled) return
-  let running = false
-  const timer = setInterval(async () => {
-    if (running) return
-    running = true
+  const controller = {
+    signature,
+    timer: null,
+    running: false,
+    stopped: false,
+    nextRunAt: 0,
+  }
+  globalThis[SCHEDULER] = controller
+
+  const intervalMs = config.scheduleMinutes * 60_000
+  let saved
+  try {
+    saved = await read(config.schedulePath)
+  } catch (error) {
+    warnSchedule("cannot read the persisted schedule", error)
+    saved = {}
+  }
+  controller.nextRunAt = nextRunAfter({
+    now: now(),
+    lastRunAt: saved.lastRunAt,
+    nextRunAt: saved.nextRunAt,
+    intervalMs,
+    storedSignature: saved.signature,
+    signature,
+  })
+  await persist(config.schedulePath, {
+    ...saved,
+    signature,
+    nextRunAt: new Date(controller.nextRunAt).toISOString(),
+  }).catch((error) => warnSchedule("cannot save the schedule", error))
+
+  const arm = () => {
+    if (controller.stopped) return
+    const delay = Math.max(0, controller.nextRunAt - now())
+    controller.timer = setTimeout(tick, delay)
+    controller.timer?.unref?.()
+  }
+
+  async function tick() {
+    if (controller.stopped || controller.running) return
+    controller.running = true
+    let result = null
     try {
-      const result = await runCommand({
+      result = await run({
         action: config.scheduleAction,
         config,
         checkin,
         keepalive,
         force: false,
       })
-      await appendDailyLog({
+      await log({
         logPath: config.logPath,
         logMaxBytes: config.logMaxBytes,
         entry: {
@@ -58,15 +117,15 @@ export function startScheduler({ config, checkin, keepalive }) {
           outcome: result.status,
           message: result.summary,
         },
-      })
-      await writeDailySnapshot({
+      }).catch((error) => warnSchedule("cannot write the schedule log", error))
+      await snapshot({
         ...(config.configHome ? { configHome: config.configHome } : {}),
         logPath: config.logPath,
         snapshotPath: config.snapshotPath,
         commandPath: config.commandPath,
-      })
+      }).catch((error) => warnSchedule(snapshotWarning(error), error))
     } catch (error) {
-      await appendDailyLog({
+      await log({
         logPath: config.logPath,
         logMaxBytes: config.logMaxBytes,
         entry: {
@@ -79,13 +138,31 @@ export function startScheduler({ config, checkin, keepalive }) {
           outcome: "failed",
           error: error instanceof Error ? error.message : String(error),
         },
-      })
+      }).catch((logError) => warnSchedule("cannot write the failure log", logError))
     } finally {
-      running = false
+      controller.running = false
+      const finishedAt = now()
+      controller.nextRunAt = nextRunAfter({
+        now: finishedAt,
+        lastRunAt: new Date(finishedAt).toISOString(),
+        intervalMs,
+        storedSignature: signature,
+        signature,
+      })
+      await persist(config.schedulePath, {
+        ...saved,
+        signature,
+        lastRunAt: new Date(finishedAt).toISOString(),
+        nextRunAt: new Date(controller.nextRunAt).toISOString(),
+        lastStatus: result?.status || "failed",
+        lastSummary: result?.summary || "",
+      }).catch((error) => warnSchedule("cannot save the completed schedule", error))
+      arm()
     }
-  }, config.scheduleMinutes * 60_000)
-  timer.unref?.()
-  globalThis[SCHEDULER] = { timer, signature }
+  }
+
+  arm()
+  return controller
 }
 
 export function stopOptionsWatcher() {
@@ -205,7 +282,7 @@ export function startOptionsWatcher({
       const liveConfig = resolveKeepaliveOptions(liveRaw)
       const checkin = makeCheckin({ input, config: liveConfig })
       const keepalive = makeKeepalive({ input, config: liveConfig })
-      start({ config: liveConfig, checkin, keepalive })
+      await start({ config: liveConfig, checkin, keepalive })
       startRefresh({ config: liveConfig })
       await consume({
         config: liveConfig,
@@ -303,7 +380,7 @@ export async function QuotaKeepalivePlugin(input, rawOptions = {}) {
   const config = resolveKeepaliveOptions(rawOptions)
   const checkin = createProviderCheckin({ input, config })
   const keepalive = createWorkBuddyKeepalive({ input, config })
-  startScheduler({ config, checkin, keepalive })
+  await startScheduler({ config, checkin, keepalive })
   startQuotaRefresher({ config })
   startOptionsWatcher({ input, rawOptions, config })
 

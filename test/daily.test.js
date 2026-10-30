@@ -670,7 +670,7 @@ describe.serial("Logs, scheduling, and page", () => {
   test("the page exposes detection, check-in, keepalive, scheduling, and logs", async () => {
     const root = new URL("..", import.meta.url)
     const html = await readFile(new URL("ui/index.html", root), "utf8")
-    for (const id of ["detect", "checkin", "keepalive", "schedule-save", "logs"]) {
+    for (const id of ["detect", "checkin", "keepalive", "probe-mode", "schedule-save", "logs"]) {
       expect(html).toContain(`id="${id}"`)
     }
     expect(html).toContain("全部已适配供应商")

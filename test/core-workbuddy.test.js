@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, readFile, utimes, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { ProviderChatError, sendProviderChat } from "../src/provider-chat.js"
 import {
@@ -41,6 +51,8 @@ function config(overrides = {}) {
     statePath: "",
     maxAttempts: 3,
     inputTokens: 1_000,
+    probeMode: "short",
+    probeMessage: "Magpie daily connectivity check. Reply with OK.",
     timeoutMs: 1_000,
     lockWaitMs: 100,
     modelCandidates: 4,
@@ -124,6 +136,107 @@ describe("auth file locking", () => {
       key: { value: 2 },
     })
   })
+
+  test("retries when another process changes the sign-in file", async () => {
+    const tmp = await dir()
+    const path = tmp.path("plugin-auth.json")
+    await writeFile(path, JSON.stringify({ existing: { value: 1 } }), "utf8")
+    const first = await stat(path)
+    const changed = {
+      ...first,
+      ino: first.ino + 1,
+      mtimeMs: first.mtimeMs + 1,
+      ctimeMs: first.ctimeMs + 1,
+    }
+    let calls = 0
+    const ops = {
+      chmod,
+      mkdir,
+      open,
+      readFile,
+      rename,
+      stat: async () => (++calls >= 3 ? changed : first),
+      unlink: async () => { throw new Error("cleanup failed") },
+    }
+    await saveAuthEntry(path, "key", { value: 2 }, ops)
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      existing: { value: 1 },
+      key: { value: 2 },
+    })
+
+    let revisions = 0
+    const unstable = {
+      ...ops,
+      stat: async () => ({ ...first, ino: first.ino + ++revisions }),
+    }
+    await expect(saveAuthEntry(path, "key", { value: 3 }, unstable))
+      .rejects.toThrow("kept changing")
+  })
+
+  test("handles missing auth files and every update failure branch", async () => {
+    const tmp = await dir()
+    const missing = tmp.path("missing", "plugin-auth.json")
+    await saveAuthEntry(missing, "key", { value: 1 })
+    expect(JSON.parse(await readFile(missing, "utf8"))).toEqual({ key: { value: 1 } })
+
+    await expect(saveAuthEntry(missing, "key", { value: 2 }, {
+      chmod,
+      mkdir,
+      open,
+      readFile,
+      rename,
+      stat: async () => { throw Object.assign(new Error("io"), { code: "EIO" }) },
+      unlink,
+    })).rejects.toThrow("io")
+
+    await expect(saveAuthEntry(missing, "key", { value: 2 }, {
+      chmod,
+      mkdir,
+      open,
+      readFile: async () => { throw Object.assign(new Error("read"), { code: "EIO" }) },
+      rename,
+      stat,
+      unlink,
+    })).rejects.toThrow("read")
+
+    const badWrite = {
+      chmod,
+      mkdir,
+      open: async (path, flags) => path.endsWith(".lock")
+        ? open(path, flags)
+        : ({
+            writeFile: async () => { throw new Error("write failed") },
+            sync: async () => {},
+            close: async () => { throw new Error("close failed") },
+          }),
+      readFile,
+      rename,
+      stat,
+      unlink: async () => { throw new Error("unlink failed") },
+    }
+    await expect(saveAuthEntry(missing, "key", { value: 2 }, badWrite))
+      .rejects.toThrow("write failed")
+
+    const first = await stat(missing)
+    let calls = 0
+    const moving = {
+      chmod,
+      mkdir,
+      open,
+      readFile,
+      rename,
+      stat: async () => {
+        calls++
+        const revision = calls === 1 || calls === 2
+          ? 0
+          : Math.floor((calls - 3) / 3) + 1
+        return { ...first, ino: first.ino + revision }
+      },
+      unlink,
+    }
+    await expect(saveAuthEntry(missing, "key", { value: 3 }, moving))
+      .rejects.toThrow("changed repeatedly")
+  })
 })
 
 describe("result mapping and logging", () => {
@@ -173,7 +286,7 @@ describe("result mapping and logging", () => {
       status: "success",
       outcome: "sent",
       model: "used",
-      inputTokens: 1_000,
+      inputTokens: 0,
       persisted: false,
     })
     expect(resultFields({ kind: "sent", ok: false, attempts: 1, error: "retry" }, cfg, "m")).toMatchObject({
@@ -203,6 +316,14 @@ describe("result mapping and logging", () => {
       provider: "p",
       account: "a",
       action: "keepalive",
+    })
+    expect(resultFields({
+      kind: "sent",
+      ok: true,
+      attempts: 1,
+      result: { model: "used" },
+    }, { ...cfg, probeMode: "context" }, "m")).toMatchObject({
+      inputTokens: 1_000,
     })
   })
 

@@ -108,6 +108,8 @@ describe("option resolution", () => {
       scheduleMinutes: "60",
       configHome: "~/config",
       inputTokens: 25_000,
+      probeMode: "context",
+      probeMessage: "  custom probe  ",
       maxAttempts: 2,
       timeoutMs: 30_000,
       lockWaitMs: 0,
@@ -117,6 +119,7 @@ describe("option resolution", () => {
       logPath: "relative.log",
       logMaxBytes: 64 * 1024,
       snapshotPath: "/tmp/page.js",
+      schedulePath: "/tmp/schedule.json",
     })
     expect(options).toMatchObject({
       model: "model-id",
@@ -126,6 +129,8 @@ describe("option resolution", () => {
       scheduleMinutes: 60,
       configHome: join(homedir(), "config"),
       inputTokens: 25_000,
+      probeMode: "context",
+      probeMessage: "custom probe",
       maxAttempts: 2,
       timeoutMs: 30_000,
       lockWaitMs: 0,
@@ -133,6 +138,7 @@ describe("option resolution", () => {
       statePath: join(homedir(), "state.json"),
       commandPath: "/tmp/command.json",
       snapshotPath: "/tmp/page.js",
+      schedulePath: "/tmp/schedule.json",
     })
     expect(options.modelPreferences.workbuddy).toBe("hy3")
     expect(options.modelPreferences.long).toBe("x".repeat(200))
@@ -167,6 +173,8 @@ describe("option resolution", () => {
       scheduleMinutes: 60,
       configHome: undefined,
       inputTokens: 25_000,
+      probeMode: "short",
+      probeMessage: "Magpie daily connectivity check. Reply with OK.",
       maxAttempts: 3,
       timeoutMs: 90_000,
       lockWaitMs: 2_000,
@@ -300,7 +308,22 @@ describe("WorkBuddy keepalive protocol", () => {
   test("builds a bounded request body and parses message errors", () => {
     const body = buildKeepaliveBody({ model: "m", inputTokens: 100, day: "2026-10-30" })
     expect(body).toMatchObject({ model: "m", max_tokens: 1, stream: true })
-    expect(body.messages[1].content).toEndWith("Reply with a single word.")
+    expect(body.messages[1].content).not.toContain("quick brown fox")
+    expect(body.messages[1].content).toEndWith("Today is 2026-10-30.")
+    const custom = buildKeepaliveBody({
+      model: "m",
+      inputTokens: 100,
+      day: "2026-10-30",
+      probeMessage: "custom check",
+    })
+    expect(custom.messages[1].content).toBe("custom check Today is 2026-10-30.")
+    const context = buildKeepaliveBody({
+      model: "m",
+      inputTokens: 100,
+      day: "2026-10-30",
+      probeMode: "context",
+    })
+    expect(context.messages[1].content).toContain("quick brown fox")
     expect(responseMessage("not-json")).toBe("")
     expect(responseMessage("null")).toBe("")
     expect(responseMessage(JSON.stringify({ error: { message: "bad token=secret" } }))).toBe("bad token=[redacted]")
@@ -454,6 +477,15 @@ describe("provider chat protocol", () => {
     const body = anthropicBody({ model: "m", inputTokens: 20, day: "2026-10-30" })
     expect(body).toMatchObject({ model: "m", max_tokens: 8, stream: true })
     expect(body.system).toContain("connectivity")
+    const context = anthropicBody({
+      model: "m",
+      inputTokens: 20,
+      day: "2026-10-30",
+      probeMode: "context",
+      probeMessage: "custom",
+    })
+    expect(context.messages[0].content).toContain("quick brown fox")
+    expect(context.messages[0].content).toContain("custom Today is 2026-10-30")
   })
 
   test("extracts replies from common JSON and stream formats", () => {

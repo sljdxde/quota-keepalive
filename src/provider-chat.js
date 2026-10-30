@@ -1,5 +1,9 @@
 import { sanitize, terminalQuotaFailure, text, withTimeout } from "./common.js"
-import { buildKeepaliveBody, sendKeepalive } from "./keepalive.js"
+import {
+  DEFAULT_PROBE_MESSAGE,
+  buildKeepaliveBody,
+  sendKeepalive,
+} from "./keepalive.js"
 
 const FILLER = "The quick brown fox jumps over the lazy dog. "
 const CHARS_PER_TOKEN = 4.5
@@ -42,15 +46,27 @@ export function endpointFor(baseURL, protocol) {
   return `${base}${protocol === "anthropic" ? "/messages" : "/chat/completions"}`
 }
 
-export function anthropicBody({ model, inputTokens, day }) {
-  const targetChars = Math.ceil(inputTokens * CHARS_PER_TOKEN)
-  const filler = FILLER.repeat(Math.ceil(targetChars / FILLER.length))
+export function anthropicBody({
+  model,
+  inputTokens,
+  day,
+  probeMode = "short",
+  probeMessage = "",
+}) {
+  const message = sanitize(probeMessage, 500).trim() || DEFAULT_PROBE_MESSAGE
+  const prompt = `${message} Today is ${day}.`
+  let content = prompt
+  if (probeMode === "context") {
+    const targetChars = Math.ceil(inputTokens * CHARS_PER_TOKEN)
+    const filler = FILLER.repeat(Math.ceil(targetChars / FILLER.length))
+    content = `${filler}${prompt}`
+  }
   return {
     model,
-    system: "You are a connectivity check. Reply with a short word.",
+    system: "You are a concise connectivity check. Reply with a short word.",
     messages: [{
       role: "user",
-      content: `${filler}Today is ${day}. Reply with a short word.`,
+      content,
     }],
     max_tokens: 8,
     stream: true,
@@ -126,6 +142,8 @@ export async function sendProviderChat({
   protocol,
   loader,
   inputTokens,
+  probeMode,
+  probeMessage,
   timeoutMs,
   day,
   key,
@@ -148,6 +166,8 @@ export async function sendProviderChat({
         origin,
         model,
         inputTokens,
+        probeMode,
+        probeMessage,
         timeoutMs,
         day,
         key,
@@ -169,8 +189,8 @@ export async function sendProviderChat({
 
   const url = endpointFor(loader.baseURL, protocol)
   const body = protocol === "anthropic"
-    ? anthropicBody({ model, inputTokens, day })
-    : buildKeepaliveBody({ model, inputTokens, day })
+    ? anthropicBody({ model, inputTokens, day, probeMode, probeMessage })
+    : buildKeepaliveBody({ model, inputTokens, day, probeMode, probeMessage })
 
   let response
   let raw

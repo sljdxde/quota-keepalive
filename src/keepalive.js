@@ -4,20 +4,36 @@ const ORIGIN = "https://copilot.tencent.com"
 const CHAT_PATH = "/v2/chat/completions"
 const FILLER = "The quick brown fox jumps over the lazy dog. "
 const CHARS_PER_TOKEN = 4.5
+export const DEFAULT_PROBE_MESSAGE = "Magpie daily connectivity check. Reply with OK."
 
-export function buildKeepaliveBody({ model, inputTokens, day }) {
-  const targetChars = Math.ceil(inputTokens * CHARS_PER_TOKEN)
-  const filler = FILLER.repeat(Math.ceil(targetChars / FILLER.length))
+function probeMessage(value) {
+  return sanitize(value, 500).trim() || DEFAULT_PROBE_MESSAGE
+}
+
+export function buildKeepaliveBody({
+  model,
+  inputTokens,
+  day,
+  probeMode = "short",
+  probeMessage: message = "",
+}) {
+  const prompt = `${probeMessage(message)} Today is ${day}.`
+  let content = prompt
+  if (probeMode === "context") {
+    const targetChars = Math.ceil(inputTokens * CHARS_PER_TOKEN)
+    const filler = FILLER.repeat(Math.ceil(targetChars / FILLER.length))
+    content = `${filler}${prompt}`
+  }
   return {
     model,
     messages: [
       {
         role: "system",
-        content: "You are a connectivity check. Reply with a single word.",
+        content: "You are a concise connectivity check. Reply with a single word.",
       },
       {
         role: "user",
-        content: `${filler}Reply with a single word.`,
+        content,
       },
     ],
     max_tokens: 1,
@@ -152,6 +168,8 @@ export async function sendKeepalive({
   origin = ORIGIN,
   model,
   inputTokens,
+  probeMode,
+  probeMessage,
   timeoutMs,
   day,
   key,
@@ -167,7 +185,13 @@ export async function sendKeepalive({
         accept: "text/event-stream",
         "x-magpie-workbuddy-session": `workbuddy-keepalive:${key}:${day}`.slice(0, 200),
       },
-      body: JSON.stringify(buildKeepaliveBody({ model, inputTokens, day })),
+      body: JSON.stringify(buildKeepaliveBody({
+        model,
+        inputTokens,
+        day,
+        probeMode,
+        probeMessage,
+      })),
       signal: AbortSignal.timeout(timeoutMs),
     })
     return { response, raw: await response.text() }

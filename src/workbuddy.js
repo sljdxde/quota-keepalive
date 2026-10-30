@@ -181,31 +181,83 @@ export async function withAuthLock(authPath, work, waitMs = 2_000, ops = FILE_OP
 export async function saveAuthEntry(authPath, key, next, ops = FILE_OPS) {
   if (!text(key) || !object(next)) throw new Error("refusing to save an invalid provider sign-in")
   return withAuthLock(authPath, async () => {
-    let all
-    try {
-      all = JSON.parse(await ops.readFile(authPath, "utf8"))
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error
-      all = {}
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const snapshot = await readAuthSnapshot(authPath, ops)
+      const all = snapshot.value
+      if (!object(all)) throw new Error("plugin-auth.json isn't an object")
+      if (JSON.stringify(all[key]) === JSON.stringify(next)) return true
+
+      all[key] = next
+      const serialized = `${JSON.stringify(all, null, 2)}\n`
+      const tmp = `${authPath}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`
+      let handle
+      try {
+        handle = await ops.open(tmp, "wx", 0o600)
+        await handle.writeFile(serialized, "utf8")
+        await handle.sync()
+        await handle.close()
+        handle = null
+
+        // Magpie and provider plugins do not use this lock. Refuse to replace
+        // a file that changed after our read, then merge against the new copy.
+        const current = await readAuthStamp(authPath, ops)
+        if (current !== snapshot.stamp) {
+          await ops.unlink(tmp).catch(() => {})
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          continue
+        }
+        await ops.rename(tmp, authPath)
+        await ops.chmod(authPath, 0o600)
+        return true
+      } catch (error) {
+        if (handle) await handle.close().catch(() => {})
+        await ops.unlink(tmp).catch(() => {})
+        throw error
+      }
     }
-    if (!object(all)) throw new Error("plugin-auth.json isn't an object")
-    all[key] = next
-    const tmp = `${authPath}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`
-    let handle
+    throw new Error("magpie's sign-in file changed repeatedly; the update was not saved")
+  })
+}
+
+function authStamp(info) {
+  if (!info) return "missing"
+  return [
+    info.ino ?? "",
+    info.size ?? "",
+    info.mtimeMs ?? "",
+    info.ctimeMs ?? "",
+  ].join(":")
+}
+
+async function readAuthStamp(authPath, ops) {
+  try {
+    return authStamp(await ops.stat(authPath))
+  } catch (error) {
+    if (error?.code === "ENOENT") return "missing"
+    throw error
+  }
+}
+
+async function readAuthSnapshot(authPath, ops) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const before = await readAuthStamp(authPath, ops)
+    if (before === "missing") {
+      return { value: {}, stamp: before }
+    }
+    let raw
     try {
-      handle = await ops.open(tmp, "wx", 0o600)
-      await handle.writeFile(`${JSON.stringify(all, null, 2)}\n`, "utf8")
-      await handle.sync()
-      await handle.close()
-      handle = null
-      await ops.rename(tmp, authPath)
-      await ops.chmod(authPath, 0o600)
+      raw = await ops.readFile(authPath, "utf8")
     } catch (error) {
-      if (handle) await handle.close().catch(() => {})
-      await ops.unlink(tmp).catch(() => {})
+      if (error?.code === "ENOENT") return { value: {}, stamp: "missing" }
       throw error
     }
-  })
+    const after = await readAuthStamp(authPath, ops)
+    if (before === after) {
+      return { value: JSON.parse(raw), stamp: after }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error("magpie's sign-in file kept changing while it was being read")
 }
 
 export function authIdentity(auth, key) {
@@ -215,6 +267,7 @@ export function authIdentity(auth, key) {
 }
 
 export function resultFields(result, config, model = "") {
+  const inputTokens = config?.probeMode === "context" ? Number(config.inputTokens) || 0 : 0
   switch (result?.kind) {
     case "skipped":
       if (result.reason === "done-today") {
@@ -271,7 +324,7 @@ export function resultFields(result, config, model = "") {
               : "exhausted",
         attempts: result.attempts,
         model: result.result?.model || model,
-        inputTokens: config.inputTokens,
+        inputTokens,
         retry: !result.ok && !terminal && result.attempts < config.maxAttempts,
         persisted: result.persisted !== false,
         error: result.error,
@@ -364,6 +417,8 @@ export async function sendWithCandidates({
         protocol: candidate.npm === "@ai-sdk/anthropic" ? "anthropic" : adapter.protocol,
         loader,
         inputTokens: config.inputTokens,
+        probeMode: config.probeMode,
+        probeMessage: config.probeMessage,
         timeoutMs: config.timeoutMs,
         day,
         key: accountTag(identity),
@@ -473,7 +528,8 @@ export function createProviderKeepalive(options = {}) {
           run,
           model: candidates[0].id,
           models: candidates.map((candidate) => candidate.id).join(","),
-          inputTokens: config.inputTokens,
+          inputTokens: config.probeMode === "context" ? config.inputTokens : 0,
+          probeMode: config.probeMode,
           keepalive: true,
         })
 
@@ -482,7 +538,8 @@ export function createProviderKeepalive(options = {}) {
           account: accountTag(`${provider}|${identity}`),
           day,
           model: candidates[0].id,
-          inputTokens: config.inputTokens,
+          inputTokens: config.probeMode === "context" ? config.inputTokens : 0,
+          probeMode: config.probeMode,
           maxAttempts: config.maxAttempts,
           lockWaitMs: config.lockWaitMs,
           timeoutMs: config.timeoutMs,

@@ -996,6 +996,7 @@
       ["供应商", record?.provider],
       ["账号", record?.account],
       ["模型", record?.model],
+      ["保活方式", record?.probeMode === "context" ? "长上下文" : record?.probeMode === "short" ? "短探活" : ""],
       ["输入", number(record?.inputTokens) ? `${formatNumber(record.inputTokens)} tokens` : ""],
       ["本次积分", number(record?.credit) ? `+${formatNumber(record.credit)}` : ""],
       ["连续签到", number(record?.streak) ? `${formatNumber(record.streak)} 天` : ""],
@@ -1192,7 +1193,8 @@
       keepalive: "真实保活",
       all: "签到 + 真实保活",
     }[options.scheduleAction] || "签到"
-    return `每 ${number(options.scheduleMinutes) || 60} 分钟执行一次${action}。`
+    const probe = options.probeMode === "context" ? "长上下文保活" : "短探活"
+    return `每 ${number(options.scheduleMinutes) || 60} 分钟执行一次${action}；${probe}。`
   }
 
   async function loadSchedule(showToast = false, refresh = false) {
@@ -1210,6 +1212,7 @@
       $("schedule-action").value = ["checkin", "keepalive", "all"].includes(options.scheduleAction)
         ? options.scheduleAction
         : "checkin"
+      $("probe-mode").value = options.probeMode === "context" ? "context" : "short"
       $("schedule-status").textContent = scheduleDescription(options)
       if (showToast) toast("定时计划已保存")
     } catch (error) {
@@ -1225,6 +1228,7 @@
       scheduleEnabled: $("schedule-enabled").checked,
       scheduleMinutes: minutes,
       scheduleAction: $("schedule-action").value,
+      probeMode: $("probe-mode").value,
     })))
     await loadSchedule(true)
   }

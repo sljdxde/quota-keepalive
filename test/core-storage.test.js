@@ -483,6 +483,33 @@ describe("keepalive state", () => {
     })
     expect(exhausted).toMatchObject({ kind: "skipped", reason: "exhausted", attempts: 2 })
 
+    const interruptedPath = tmp.path("interrupted.json")
+    await writeFile(interruptedPath, JSON.stringify({
+      version: 1,
+      accounts: {
+        interrupted: {
+          day: "2026-10-30",
+          status: "running",
+          attempts: 2,
+          at: "2026-10-30T00:00:00.000Z",
+        },
+      },
+    }), "utf8")
+    expect(await runDailyOnce({
+      statePath: interruptedPath,
+      account: "interrupted",
+      day: "2026-10-30",
+      now: new Date("2026-10-30T01:00:00.000Z"),
+      maxAttempts: 2,
+      lockWaitMs: 100,
+      timeoutMs: 100,
+      task: async () => "recovered",
+    })).toMatchObject({
+      kind: "sent",
+      ok: true,
+      attempts: 3,
+    })
+
     const oldPath = tmp.path("old.json")
     await writeFile(oldPath, JSON.stringify({
       version: 1,

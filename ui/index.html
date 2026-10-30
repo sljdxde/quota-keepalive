@@ -108,6 +108,17 @@
             <path d="m4 6 4 4 4-4"></path>
           </svg>
         </label>
+        <label class="select-field probe-field"
+               title="短探活只发送一条短消息；长上下文会填充到配置的输入规模">
+          <select id="probe-mode" aria-label="保活方式">
+            <option value="short">短探活</option>
+            <option value="context">长上下文</option>
+          </select>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m4 6 4 4 4-4"></path>
+          </svg>
+        </label>
         <button class="button schedule-save" id="schedule-save" type="button">保存计划</button>
       </div>
     </section>

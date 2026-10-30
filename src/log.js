@@ -227,6 +227,7 @@ export function formatLogRecord(record) {
     ["outcome", record.outcome],
     ["attempts", record.attempts],
     ["model", record.model],
+    ["probeMode", record.probeMode],
     ["inputTokens", record.inputTokens],
     ["credit", record.credit],
     ["streak", record.streak],

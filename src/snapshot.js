@@ -31,6 +31,7 @@ const FIELD_LIMITS = {
   status: 12,
   outcome: 24,
   model: 160,
+  probeMode: 16,
   account: 24,
   run: 48,
 }
@@ -47,7 +48,7 @@ function safeField(record, name) {
 
 export function publicRecord(record) {
   const out = {}
-  for (const name of ["ts", "day", "provider", "event", "status", "outcome", "model", "account", "run"]) {
+  for (const name of ["ts", "day", "provider", "event", "status", "outcome", "model", "probeMode", "account", "run"]) {
     const value = safeField(record, name)
     if (value) out[name] = value
   }

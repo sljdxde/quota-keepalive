@@ -16,6 +16,7 @@ import pluginModule from "../index.js"
 import { PLUGIN_DIR } from "../src/live-options.js"
 import { resolveKeepaliveOptions } from "../src/config.js"
 import { appendDailyLog, readDailyLogs } from "../src/log.js"
+import { readSchedule, scheduleSignature } from "../src/schedule.js"
 import { tempDir } from "./support.js"
 
 const cleanups = []
@@ -88,6 +89,7 @@ function baseConfig(tmp, overrides = {}) {
     logPath: tmp.path("daily.log.jsonl"),
     snapshotPath: tmp.path("ui", "data.js"),
     commandPath: tmp.path("command.json"),
+    schedulePath: tmp.path("schedule.json"),
     watchOptions: false,
     scheduleEnabled: false,
     ...overrides,
@@ -133,7 +135,7 @@ describe("log MCP tool", () => {
 
 describe("scheduler", () => {
   test("deduplicates signatures, clears old timers, and runs once at a time", async () => {
-    const timers = installIntervalCapture()
+    const timers = installTimeoutCapture()
     const tmp = await dir()
     const config = baseConfig(tmp)
     let release
@@ -143,14 +145,15 @@ describe("scheduler", () => {
       await new Promise((resolve) => { release = resolve })
       return { status: "success", summary: "完成", accounts: [] }
     }
-    startScheduler({ config, keepalive })
+    await startScheduler({ config, keepalive })
     expect(timers).toHaveLength(0)
     const enabled = { ...config, scheduleEnabled: true, scheduleAction: "keepalive", scheduleMinutes: 5 }
-    startScheduler({ config: enabled, keepalive })
+    await startScheduler({ config: enabled, keepalive })
     expect(timers).toHaveLength(1)
-    expect(timers[0].ms).toBe(300_000)
+    expect(timers[0].ms).toBeGreaterThan(299_000)
+    expect(timers[0].ms).toBeLessThanOrEqual(300_000)
     expect(timers[0].unrefCalled).toBe(true)
-    startScheduler({ config: enabled, keepalive })
+    await startScheduler({ config: enabled, keepalive })
     expect(timers).toHaveLength(1)
 
     const first = timers[0].callback()
@@ -160,25 +163,27 @@ describe("scheduler", () => {
     release()
     await first
     expect((await readDailyLogs({ logPath: config.logPath })).records.some((record) => record.event === "schedule")).toBe(true)
+    expect(timers).toHaveLength(2)
+    expect((await readSchedule(config.schedulePath)).lastStatus).toBe("success")
 
     const changed = { ...enabled, scheduleMinutes: 10 }
-    startScheduler({ config: changed, keepalive })
-    expect(timers).toHaveLength(2)
-    expect(timers[0].cleared).toBe(true)
+    await startScheduler({ config: changed, keepalive })
+    expect(timers).toHaveLength(3)
+    expect(timers[1].cleared).toBe(true)
 
     const modelChanged = {
       ...changed,
       modelPreferences: { workbuddy: "hy3" },
     }
-    startScheduler({ config: modelChanged, keepalive })
-    expect(timers).toHaveLength(3)
-    expect(timers[1].cleared).toBe(true)
-    stopScheduler()
+    await startScheduler({ config: modelChanged, checkin: null, keepalive })
+    expect(timers).toHaveLength(4)
     expect(timers[2].cleared).toBe(true)
+    stopScheduler()
+    expect(timers[3].cleared).toBe(true)
   })
 
   test("records scheduler failures", async () => {
-    const timers = installIntervalCapture()
+    const timers = installTimeoutCapture()
     const tmp = await dir()
     const config = baseConfig(tmp, {
       scheduleEnabled: true,
@@ -186,14 +191,14 @@ describe("scheduler", () => {
       scheduleMinutes: 5,
     })
     const invalid = { ...config, scheduleAction: "bad" }
-    startScheduler({ config: invalid, keepalive: null })
+    await startScheduler({ config: invalid, keepalive: null })
     await timers[0].callback()
     const records = (await readDailyLogs({ logPath: config.logPath })).records
     expect(records.some((record) => record.event === "schedule" && record.status === "failed")).toBe(true)
   })
 
   test("keeps the scheduler alive when the page snapshot cannot be written", async () => {
-    const timers = installIntervalCapture()
+    const timers = installTimeoutCapture()
     const tmp = await dir()
     const snapshotDir = tmp.path("snapshot-dir")
     await mkdir(snapshotDir)
@@ -203,12 +208,103 @@ describe("scheduler", () => {
       scheduleMinutes: 5,
       snapshotPath: snapshotDir,
     })
-    startScheduler({
+    await startScheduler({
       config,
       keepalive: async () => ({ status: "success", summary: "完成", accounts: [] }),
     })
     await timers[0].callback()
     expect((await readDailyLogs({ logPath: config.logPath })).records.some((record) => record.event === "schedule")).toBe(true)
+  })
+
+  test("catches up an overdue persisted schedule and records read failures", async () => {
+    const timers = installTimeoutCapture()
+    const tmp = await dir()
+    const config = baseConfig(tmp, {
+      scheduleEnabled: true,
+      scheduleAction: "keepalive",
+      scheduleMinutes: 5,
+    })
+    const expired = new Date(Date.now() - 60_000).toISOString()
+    await writeFile(config.schedulePath, JSON.stringify({
+      version: 1,
+      signature: scheduleSignature(config),
+      lastRunAt: new Date(Date.now() - 360_000).toISOString(),
+      nextRunAt: expired,
+      lastStatus: "success",
+      lastSummary: "old",
+    }), "utf8")
+    await startScheduler({
+      config,
+      keepalive: async () => ({ status: "success", summary: "完成", accounts: [] }),
+    })
+    expect(timers[0].ms).toBe(0)
+    await timers[0].callback()
+    const state = await readSchedule(config.schedulePath)
+    expect(Date.parse(state.nextRunAt)).toBeGreaterThan(Date.now())
+    stopScheduler()
+
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (line) => warnings.push(String(line))
+    try {
+      await startScheduler({
+        config,
+        keepalive: async () => ({ status: "success", summary: "完成", accounts: [] }),
+        read: async () => { throw new Error("bad schedule") },
+        persist: async () => { throw new Error("disk full") },
+      })
+    } finally {
+      console.warn = realWarn
+    }
+    expect(warnings.some((line) => line.includes("cannot read the persisted schedule"))).toBe(true)
+    expect(warnings.some((line) => line.includes("cannot save the schedule"))).toBe(true)
+  })
+
+  test("keeps rescheduling when logging and persistence fail", async () => {
+    const timers = installTimeoutCapture()
+    const tmp = await dir()
+    const config = baseConfig(tmp, {
+      scheduleEnabled: true,
+      scheduleAction: "keepalive",
+      scheduleMinutes: 5,
+    })
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (line) => warnings.push(String(line))
+    let writes = 0
+    try {
+      await startScheduler({
+        config,
+        keepalive: async () => ({ status: "success", summary: "完成", accounts: [] }),
+        log: async ({ entry }) => {
+          if (entry.status === "success") throw new Error("log failed")
+        },
+        persist: async () => {
+          writes++
+          if (writes > 1) throw new Error("state failed")
+        },
+        snapshot: async () => {},
+      })
+      await timers[0].callback()
+      expect(timers).toHaveLength(2)
+
+      stopScheduler()
+      const failed = { ...config, scheduleAction: "all" }
+      await startScheduler({
+        config: failed,
+        keepalive: null,
+        run: async () => { throw new Error("run failed") },
+        log: async () => { throw new Error("failure log failed") },
+        persist: async () => {},
+        snapshot: async () => {},
+      })
+      await timers[2].callback()
+    } finally {
+      console.warn = realWarn
+    }
+    expect(warnings.some((line) => line.includes("cannot write the schedule log"))).toBe(true)
+    expect(warnings.some((line) => line.includes("cannot save the completed schedule"))).toBe(true)
+    expect(warnings.some((line) => line.includes("cannot write the failure log"))).toBe(true)
   })
 })
 

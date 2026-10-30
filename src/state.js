@@ -232,8 +232,21 @@ export async function runDailyOnce({
       return { kind: "unavailable", error: errorText(error) }
     }
     prune(doc, day)
-    const previous = newer(doc.accounts[account], inMemory)
+    let previous = newer(doc.accounts[account], inMemory)
+    let interrupted = false
     if (previous?.day === day) {
+      const startedAt = Date.parse(previous.at || "")
+      const staleMs = Math.max(30_000, timeoutMs + 30_000)
+      if (previous.status === "running" && Number.isFinite(startedAt) &&
+          now.getTime() - startedAt > staleMs) {
+        interrupted = true
+        previous = {
+          ...previous,
+          status: "failed",
+          at: new Date(startedAt).toISOString(),
+          error: "the previous attempt was interrupted",
+        }
+      }
       remember(statePath, account, previous)
       if (previous.status === "ok") {
         return { kind: "skipped", reason: "done-today", attempts: previous.attempts }
@@ -246,7 +259,7 @@ export async function runDailyOnce({
           error: previous.error || "",
         }
       }
-      if (previous.attempts >= maxAttempts && !force) {
+      if (previous.attempts >= maxAttempts && !force && !interrupted) {
         return {
           kind: "skipped",
           reason: "exhausted",

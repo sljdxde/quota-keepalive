@@ -7,16 +7,20 @@ import {
   MIN_LOG_MAX_BYTES,
   defaultLogPath,
 } from "./log.js"
+import { DEFAULT_PROBE_MESSAGE } from "./keepalive.js"
 import {
   normalizeAccountPreferences,
   normalizeProviderPreferences,
 } from "./preferences.js"
+import { defaultSchedulePath } from "./schedule.js"
 import { defaultSnapshotPath } from "./snapshot.js"
 
 export const DEFAULT_KEEPALIVE = Object.freeze({
   model: "",
   modelCandidates: 4,
   inputTokens: 25_000,
+  probeMode: "short",
+  probeMessage: DEFAULT_PROBE_MESSAGE,
   maxAttempts: 3,
   scheduleEnabled: false,
   scheduleAction: "checkin",
@@ -54,6 +58,9 @@ function absolutePath(value, fallback) {
 export function resolveKeepaliveOptions(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}
   const model = typeof source.model === "string" ? source.model.trim().slice(0, 200) : ""
+  const probeMessage = typeof source.probeMessage === "string"
+    ? source.probeMessage.trim().slice(0, 500)
+    : ""
   const scheduleAction = ["checkin", "keepalive", "all"].includes(source.scheduleAction)
     ? source.scheduleAction
     : DEFAULT_KEEPALIVE.scheduleAction
@@ -68,6 +75,8 @@ export function resolveKeepaliveOptions(raw) {
     scheduleMinutes: integerIn(source.scheduleMinutes, DEFAULT_KEEPALIVE.scheduleMinutes, 5, 10_080),
     configHome: absolutePath(source.configHome, undefined),
     inputTokens: integerIn(source.inputTokens, DEFAULT_KEEPALIVE.inputTokens, 1_000, 25_000),
+    probeMode: source.probeMode === "context" ? "context" : DEFAULT_KEEPALIVE.probeMode,
+    probeMessage: probeMessage || DEFAULT_PROBE_MESSAGE,
     maxAttempts: integerIn(source.maxAttempts, DEFAULT_KEEPALIVE.maxAttempts, 1, 10),
     timeoutMs: integerIn(source.timeoutMs, DEFAULT_KEEPALIVE.timeoutMs, 10_000, 180_000),
     lockWaitMs: integerIn(source.lockWaitMs, DEFAULT_KEEPALIVE.lockWaitMs, 0, 10_000),
@@ -82,5 +91,6 @@ export function resolveKeepaliveOptions(raw) {
       MAX_LOG_MAX_BYTES,
     ),
     snapshotPath: absolutePath(source.snapshotPath, defaultSnapshotPath()),
+    schedulePath: absolutePath(source.schedulePath, defaultSchedulePath()),
   }
 }
