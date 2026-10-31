@@ -267,7 +267,8 @@ export function authIdentity(auth, key) {
 }
 
 export function resultFields(result, config, model = "") {
-  const inputTokens = config?.probeMode === "context" ? Number(config.inputTokens) || 0 : 0
+  const longProbe = config?.probeMode === "context" || config?.probeMode === "activity"
+  const configuredInputTokens = longProbe ? Number(config.inputTokens) || 0 : 0
   switch (result?.kind) {
     case "skipped":
       if (result.reason === "done-today") {
@@ -313,6 +314,8 @@ export function resultFields(result, config, model = "") {
       }
     case "sent":
       const terminal = result.cause?.retryToday === false
+      const reply = result.result || {}
+      const inputTokens = Number(reply.promptTokens) || configuredInputTokens
       return {
         status: result.ok ? "success" : "failed",
         outcome: result.ok
@@ -323,8 +326,11 @@ export function resultFields(result, config, model = "") {
               ? "retry"
               : "exhausted",
         attempts: result.attempts,
-        model: result.result?.model || model,
+        model: reply.model || model,
+        probeMode: config?.probeMode,
         inputTokens,
+        ...(reply.credit === undefined ? {} : { credit: reply.credit }),
+        ...(reply.activityVerified === undefined ? {} : { activityVerified: reply.activityVerified }),
         retry: !result.ok && !terminal && result.attempts < config.maxAttempts,
         persisted: result.persisted !== false,
         error: result.error,
@@ -528,17 +534,21 @@ export function createProviderKeepalive(options = {}) {
           run,
           model: candidates[0].id,
           models: candidates.map((candidate) => candidate.id).join(","),
-          inputTokens: config.probeMode === "context" ? config.inputTokens : 0,
+          inputTokens: ["context", "activity"].includes(config.probeMode) ? config.inputTokens : 0,
           probeMode: config.probeMode,
           keepalive: true,
         })
 
+        const activityMode = config.probeMode === "short" ? "short" : "activity"
         const result = await runDailyOnce({
           statePath: config.statePath,
-          account: accountTag(`${provider}|${identity}`),
+          // A legacy short probe and a real activity conversation are not the
+          // same task. Keeping them separate lets a user switch to activity
+          // after a short probe has already been recorded today.
+          account: accountTag(`${provider}|${identity}|keepalive:${activityMode}`),
           day,
           model: candidates[0].id,
-          inputTokens: config.probeMode === "context" ? config.inputTokens : 0,
+          inputTokens: ["context", "activity"].includes(config.probeMode) ? config.inputTokens : 0,
           probeMode: config.probeMode,
           maxAttempts: config.maxAttempts,
           lockWaitMs: config.lockWaitMs,

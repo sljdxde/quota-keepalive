@@ -56,7 +56,7 @@ export function anthropicBody({
   const message = sanitize(probeMessage, 500).trim() || DEFAULT_PROBE_MESSAGE
   const prompt = `${message} Today is ${day}.`
   let content = prompt
-  if (probeMode === "context") {
+  if (probeMode === "context" || probeMode === "activity") {
     const targetChars = Math.ceil(inputTokens * CHARS_PER_TOKEN)
     const filler = FILLER.repeat(Math.ceil(targetChars / FILLER.length))
     content = `${filler}${prompt}`

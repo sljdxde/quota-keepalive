@@ -44,8 +44,10 @@ hook. This plugin only coordinates those capabilities and presents the results.
 - Respect provider-level and account-level switches; unsupported or signed-out
   accounts are reported explicitly instead of being silently skipped.
 - Send real-chat keepalive through each provider's signed adapter.
-- Use short probes by default. Long-context probes are opt-in and respect
-  `inputTokens`.
+- Use a real activity conversation by default. For WorkBuddy CN this follows
+  dsh's measured probe shape: about 25k input tokens and one output token, which
+  consumes credits. Use the short probe only when a low-cost connectivity check
+  is enough.
 - Prefer models that recently completed a real keepalive successfully, then fall
   back by success rate, recency, and known failures. Provider model order is used
   when there is no history.
@@ -132,7 +134,9 @@ enable automatic keepalive by default.
 - **Refresh quota**: refresh all enabled providers; each provider row also has a
   provider-only refresh button.
 - **Save schedule**: set the shared interval and action type.
-- **Short probe / Long context**: choose the request shape used by keepalive.
+- **Real activity / Short probe**: real activity fills the configured input and
+  can leave an activity record, but consumes credits. A short probe is cheaper
+  and faster, but does not guarantee an activity record.
 
 Saving a schedule starts the next run after the configured interval. The next run
 time is persisted, and a task already due when Magpie starts is run immediately.
@@ -166,10 +170,12 @@ Keepalive does not blindly choose the cheapest or a free model:
 6. Fall back to the next candidate on a missing model, credit rejection, upstream
    outage, or empty reply.
 
-For WorkBuddy CN, the keepalive path follows dsh probe semantics: an HTTP 2xx means
-the upstream accepted and recorded a real chat, even when a one-token response only
-contains `[DONE]`, usage data, or an empty visible body. JSON business errors, HTML
-login pages, and timeouts are failures.
+For WorkBuddy CN, the real activity path follows dsh probe semantics and sends
+about 25k input tokens with a one-token output cap. Activity mode requires either
+visible model content or usage/credit/prompt-token evidence in the response. A bare
+`[DONE]`, an empty 200, JSON business errors, HTML login pages, and timeouts are
+failures. The short-probe mode remains available for low-cost checks, but it does
+not claim that an activity record was created.
 
 ## Configuration
 
@@ -185,7 +191,7 @@ magpie plugin options quota-keepalive '{
     "codearts": "deepseek-v4.1-flash"
   },
   "modelCandidates": 4,
-  "probeMode": "short",
+  "probeMode": "activity",
   "probeMessage": "Magpie daily connectivity check. Reply with OK.",
   "inputTokens": 25000,
   "maxAttempts": 3,
@@ -200,14 +206,20 @@ magpie plugin options quota-keepalive '{
 - `model`: optional preferred model; it is not a hard allowlist.
 - `modelPreferences`: preferred model per provider.
 - `modelCandidates`: maximum fallback candidates per account, default `4`.
-- `probeMode`: `short` by default; `context` sends the configured long input.
+- `probeMode`: `activity` by default and sends the configured long activity input;
+  `short` sends only a short message; `context` is the backwards-compatible alias
+  for `activity`.
 - `probeMessage`: short probe text, up to 500 characters.
-- `inputTokens`: long-context input size, only used with `probeMode=context`.
+- `inputTokens`: long-input size for `activity`/`context`, default 25000.
 - `maxAttempts`: maximum keepalive attempts per account per Beijing day.
 - `timeoutMs`: overall timeout for one model request, default 90 seconds.
 - `logMaxBytes`: rotate one previous log after this size, default 2 MiB.
 - `statePath`, `logPath`, `snapshotPath`, `commandPath`, `schedulePath`: optional
   absolute paths.
+
+Upgrade note: an old installation that explicitly saved `probeMode: "short"` keeps
+that choice. Select **Real activity** and save the schedule (or update plugin
+options) when you want WorkBuddy activity records to be written.
 
 ## Logs
 

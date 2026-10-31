@@ -230,6 +230,7 @@ export function formatLogRecord(record) {
     ["probeMode", record.probeMode],
     ["inputTokens", record.inputTokens],
     ["credit", record.credit],
+    ["activityVerified", record.activityVerified],
     ["streak", record.streak],
     ["durationMs", record.durationMs],
     ["retry", record.retry],

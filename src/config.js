@@ -19,7 +19,7 @@ export const DEFAULT_KEEPALIVE = Object.freeze({
   model: "",
   modelCandidates: 4,
   inputTokens: 25_000,
-  probeMode: "short",
+  probeMode: "activity",
   probeMessage: DEFAULT_PROBE_MESSAGE,
   maxAttempts: 3,
   scheduleEnabled: false,
@@ -75,7 +75,9 @@ export function resolveKeepaliveOptions(raw) {
     scheduleMinutes: integerIn(source.scheduleMinutes, DEFAULT_KEEPALIVE.scheduleMinutes, 5, 10_080),
     configHome: absolutePath(source.configHome, undefined),
     inputTokens: integerIn(source.inputTokens, DEFAULT_KEEPALIVE.inputTokens, 1_000, 25_000),
-    probeMode: source.probeMode === "context" ? "context" : DEFAULT_KEEPALIVE.probeMode,
+    probeMode: ["short", "context", "activity"].includes(source.probeMode)
+      ? source.probeMode
+      : DEFAULT_KEEPALIVE.probeMode,
     probeMessage: probeMessage || DEFAULT_PROBE_MESSAGE,
     maxAttempts: integerIn(source.maxAttempts, DEFAULT_KEEPALIVE.maxAttempts, 1, 10),
     timeoutMs: integerIn(source.timeoutMs, DEFAULT_KEEPALIVE.timeoutMs, 10_000, 180_000),

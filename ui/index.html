@@ -112,10 +112,10 @@
           </svg>
         </label>
         <label class="select-field probe-field"
-               title="短探活只发送一条短消息；长上下文会填充到配置的输入规模">
+               title="真实活跃对话会发送约 25k 输入并消耗积分；短探活只做低成本连通性检查">
           <select id="probe-mode" aria-label="保活方式">
+            <option value="activity">真实活跃对话</option>
             <option value="short">短探活</option>
-            <option value="context">长上下文</option>
           </select>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -167,7 +167,7 @@
     <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
       <p class="eyebrow">REAL REQUEST</p>
       <h2 id="confirm-title">发送真实保活消息？</h2>
-      <p id="confirm-detail">这会为全部已适配供应商的账号发送真实对话，优先尝试近期验证可用且能成功回复的模型；仍可能消耗积分。</p>
+      <p id="confirm-detail">这会为全部已适配供应商的账号发送真实活跃对话，优先尝试近期验证可用且能成功回复的模型；请求可能消耗积分。</p>
       <div class="confirm-actions">
         <button class="button" id="confirm-cancel" type="button">取消</button>
         <button class="button caution" id="confirm-send" type="button">确认发送</button>

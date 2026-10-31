@@ -3,7 +3,7 @@
   const ACTIONS = {
     detect: { title: "检测账号", detail: "正在读取 Magpie 当前已登录的供应商与账号。" },
     checkin: { title: "全部签到", detail: "正在让已有签到能力的供应商执行签到。" },
-    keepalive: { title: "发送保活", detail: "正在为全部已适配供应商账号发送真实对话。" },
+    keepalive: { title: "发送保活", detail: "正在为全部已适配供应商账号发送真实活跃对话；会消耗额度。" },
     refresh: { title: "刷新额度", detail: "正在刷新全部启用供应商的实时额度。" },
   }
   const EVENT_NAMES = {
@@ -995,9 +995,12 @@
       ["供应商", record?.provider],
       ["账号", record?.account],
       ["模型", record?.model],
-      ["保活方式", record?.probeMode === "context" ? "长上下文" : record?.probeMode === "short" ? "短探活" : ""],
+      ["保活方式", record?.probeMode === "activity" || record?.probeMode === "context"
+        ? "真实活跃对话"
+        : record?.probeMode === "short" ? "短探活" : ""],
       ["输入", number(record?.inputTokens) ? `${formatNumber(record.inputTokens)} tokens` : ""],
       ["本次积分", number(record?.credit) ? `+${formatNumber(record.credit)}` : ""],
+      ["活跃确认", record?.activityVerified === true ? "已验证" : ""],
       ["连续签到", number(record?.streak) ? `${formatNumber(record.streak)} 天` : ""],
       ["耗时", durationText(record?.durationMs)],
       ["日期", record?.day],
@@ -1192,7 +1195,9 @@
       keepalive: "真实保活",
       all: "签到 + 真实保活",
     }[options.scheduleAction] || "签到"
-    const probe = options.probeMode === "context" ? "长上下文保活" : "短探活"
+    const probe = options.probeMode === "activity" || options.probeMode === "context"
+      ? "真实活跃对话（会消耗积分）"
+      : "短探活（不保证活跃记录）"
     return `每 ${number(options.scheduleMinutes) || 60} 分钟执行一次${action}；${probe}。`
   }
 
@@ -1211,7 +1216,7 @@
       $("schedule-action").value = ["checkin", "keepalive", "all"].includes(options.scheduleAction)
         ? options.scheduleAction
         : "checkin"
-      $("probe-mode").value = options.probeMode === "context" ? "context" : "short"
+      $("probe-mode").value = options.probeMode === "short" ? "short" : "activity"
       $("schedule-status").textContent = scheduleDescription(options)
       if (showToast) toast("定时计划已保存")
     } catch (error) {

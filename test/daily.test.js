@@ -417,14 +417,14 @@ describe.serial("Multi-provider model availability", () => {
     expect(result.accounts[0].message).toContain("unavailable")
   })
 
-  test("accepts a WorkBuddy 2xx probe that ends with [DONE] and no visible reply", async () => {
+  test("rejects a WorkBuddy activity request that ends with [DONE] and no activity evidence", async () => {
     const h = await harness({
       options: { maxAttempts: 1, modelCandidates: 1 },
       handler: () => sse("data: [DONE]\n\n"),
     })
     const result = await h.runKeepalive({ force: true })
-    expect(result.status).toBe("success")
-    expect(result.accounts[0].outcome).toBe("sent")
+    expect(result.status).toBe("failed")
+    expect(result.accounts[0].outcome).toBe("exhausted")
   })
 
   test("uses private state and log files without credentials or replies", async () => {
@@ -707,6 +707,8 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(html).toContain("<span>刷新额度</span>")
     expect(html).toContain('title="刷新全部启用供应商的实时额度"')
     expect(html).toContain('aria-label="刷新全部启用供应商的实时额度"')
+    expect(html).toContain('<option value="activity">真实活跃对话</option>')
+    expect(html).toContain('<option value="short">短探活</option>')
     expect(html).toContain("<h1>额度签到</h1>")
     expect(html).toContain('src="options-writer.js"')
     expect(app).toContain("writePageOptions")

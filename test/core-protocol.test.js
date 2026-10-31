@@ -173,7 +173,7 @@ describe("option resolution", () => {
       scheduleMinutes: 60,
       configHome: undefined,
       inputTokens: 25_000,
-      probeMode: "short",
+      probeMode: "activity",
       probeMessage: "Magpie daily connectivity check. Reply with OK.",
       maxAttempts: 3,
       timeoutMs: 90_000,
@@ -324,6 +324,16 @@ describe("WorkBuddy keepalive protocol", () => {
       probeMode: "context",
     })
     expect(context.messages[1].content).toContain("quick brown fox")
+    const activity = buildKeepaliveBody({
+      model: "m",
+      inputTokens: 1_000,
+      day: "2026-10-30",
+      probeMode: "activity",
+    })
+    expect(activity.messages[0].content).toBe("You are a connectivity check. Reply with a single word.")
+    expect(activity.messages[1].content).toContain("quick brown fox")
+    expect(activity.messages[1].content).not.toContain("Today is")
+    expect(activity.messages[1].content.length).toBeGreaterThan(4_000)
     expect(responseMessage("not-json")).toBe("")
     expect(responseMessage("null")).toBe("")
     expect(responseMessage(JSON.stringify({ error: { message: "bad token=secret" } }))).toBe("bad token=[redacted]")
@@ -342,6 +352,12 @@ describe("WorkBuddy keepalive protocol", () => {
       ok: false,
       content: "",
     })
+    expect(assistantReply(
+      'data: {"choices":[{"delta":{"content":[{"text":"A"},{"text":"B"}]}}]}\n',
+    )).toEqual({
+      ok: true,
+      content: "AB",
+    })
   })
 
   test("sends and validates keepalive replies", async () => {
@@ -357,7 +373,22 @@ describe("WorkBuddy keepalive protocol", () => {
       day: "2026-10-30",
       key: "key",
     })
-    expect(success).toEqual({ model: "model-a", reply: "YES" })
+    expect(success).toEqual({ model: "model-a", reply: "YES", activityVerified: true })
+    const usageOnly = await sendKeepalive({
+      fetchImpl: async () => sse('data: {"usage":{"prompt_tokens":25023,"credit":0.72}}\n\ndata: [DONE]\n\n'),
+      model: "model-a",
+      inputTokens: 25_000,
+      timeoutMs: 1_000,
+      day: "2026-10-30",
+      key: "key",
+    })
+    expect(usageOnly).toMatchObject({
+      model: "model-a",
+      reply: "",
+      activityVerified: true,
+      credit: 0.72,
+      promptTokens: 25023,
+    })
 
     await expect(sendKeepalive({
       fetchImpl: async () => json({ error: { message: "quota" } }, 429),
@@ -393,22 +424,22 @@ describe("WorkBuddy keepalive protocol", () => {
       day: "2026-10-30",
       key: "k",
     })).rejects.toThrow("HTTP 502")
-    expect(await sendKeepalive({
+    await expect(sendKeepalive({
       fetchImpl: async () => sse("data: [DONE]\n\n"),
       model: "m",
       inputTokens: 10,
       timeoutMs: 1_000,
       day: "2026-10-30",
       key: "k",
-    })).toEqual({ model: "m", reply: "" })
-    expect(await sendKeepalive({
+    })).rejects.toThrow("without a model reply or usage evidence")
+    await expect(sendKeepalive({
       fetchImpl: async () => new Response("", { status: 200 }),
       model: "m",
       inputTokens: 10,
       timeoutMs: 1_000,
       day: "2026-10-30",
       key: "k",
-    })).toEqual({ model: "m", reply: "" })
+    })).rejects.toThrow("without a model reply or usage evidence")
     await expect(sendKeepalive({
       fetchImpl: async () => json({ code: 14018, msg: "Credits exhausted" }),
       model: "m",
@@ -442,7 +473,12 @@ describe("WorkBuddy keepalive protocol", () => {
     expect(workbuddyProbeResult(
       new Response(""),
       'data: {"usage":{"credit":0.72}}\n\ndata: [DONE]\n\n',
-    )).toEqual({ ok: true, content: "" })
+    )).toEqual({
+      ok: true,
+      content: "",
+      activityVerified: false,
+      credit: 0.72,
+    })
     expect(workbuddyProbeResult(
       new Response(""),
       'data: {"error":{"message":"channel rejected"}}\n\n',
@@ -465,7 +501,67 @@ describe("WorkBuddy keepalive protocol", () => {
       ok: false,
       error: "WorkBuddy's keepalive chat returned 200 but rejected the request: plain refusal",
     })
-    expect(workbuddyProbeResult(new Response(""), undefined)).toEqual({ ok: true, content: "" })
+    expect(workbuddyProbeResult(new Response(""), undefined)).toEqual({
+      ok: true,
+      content: "",
+      activityVerified: false,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      'data: {"usage":{"prompt_tokens":25023,"credit":0.72}}\n\ndata: [DONE]\n\n',
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: true,
+      activityVerified: true,
+      credit: 0.72,
+      promptTokens: 25023,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      'data: {"usage":{"credit":"0.72","prompt_tokens":"25023","completion_tokens":"1","total_tokens":"25024"}}\n\ndata: [DONE]\n\n',
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: true,
+      activityVerified: true,
+      credit: 0.72,
+      promptTokens: 25023,
+      completionTokens: 1,
+      totalTokens: 25024,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      JSON.stringify({ choices: [{ message: { content: "OK" } }] }),
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: true,
+      content: "OK",
+      activityVerified: true,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      JSON.stringify({ content: [{ text: "ACTIVE" }] }),
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: true,
+      content: "ACTIVE",
+      activityVerified: true,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      "data: [DONE]\n\n",
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: false,
+      activityVerified: false,
+    })
+    expect(workbuddyProbeResult(
+      new Response(""),
+      'data: {"usage":{"prompt_tokens":null,"credit":""}}\n\ndata: [DONE]\n\n',
+      { probeMode: "activity" },
+    )).toMatchObject({
+      ok: false,
+      activityVerified: false,
+    })
   })
 })
 

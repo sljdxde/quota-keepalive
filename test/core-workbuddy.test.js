@@ -325,6 +325,22 @@ describe("result mapping and logging", () => {
     }, { ...cfg, probeMode: "context" }, "m")).toMatchObject({
       inputTokens: 1_000,
     })
+    expect(resultFields({
+      kind: "sent",
+      ok: true,
+      attempts: 1,
+      result: {
+        model: "used",
+        promptTokens: 25_023,
+        credit: 0.72,
+        activityVerified: true,
+      },
+    }, { ...cfg, probeMode: "activity" }, "m")).toMatchObject({
+      inputTokens: 25_023,
+      credit: 0.72,
+      activityVerified: true,
+      probeMode: "activity",
+    })
   })
 
   test("writes safe structured logs", async () => {

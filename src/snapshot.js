@@ -53,7 +53,7 @@ export function publicRecord(record) {
     if (value) out[name] = value
   }
   if (out.account && !ACCOUNT.test(out.account)) delete out.account
-  for (const name of ["attempts", "inputTokens", "credit", "streak", "durationMs", "retry", "persisted", "keepalive"]) {
+  for (const name of ["attempts", "inputTokens", "credit", "streak", "durationMs", "retry", "persisted", "keepalive", "activityVerified"]) {
     const value = record?.[name]
     if (value !== undefined && value !== null && (typeof value === "number" || typeof value === "boolean")) {
       out[name] = value
