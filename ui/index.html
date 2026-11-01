@@ -19,7 +19,7 @@
         <div class="brand-copy">
           <p class="eyebrow">QUOTA KEEPALIVE</p>
           <h1>额度签到</h1>
-          <p class="lead">检测已登录账号，集中查看签到、额度变化和真实对话保活结果。</p>
+          <p class="lead">检测已登录账号，集中查看签到、额度变化和执行结果。</p>
         </div>
       </div>
       <div class="hero-tools">
@@ -41,15 +41,6 @@
               </svg>
             </span>
             <span>全部签到</span>
-          </button>
-          <button class="button action-button action-warm" id="keepalive" type="button">
-            <span class="action-icon" aria-hidden="true">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M2.6 3.2h10.8v7.2H8l-3.1 2.7v-2.7H2.6z"></path>
-                <path d="M5 6.2h1.4L7.5 8l1.2-2.2 1.2 1.5h1.1"></path>
-              </svg>
-            </span>
-            <span>发送保活</span>
           </button>
         </div>
         <button
@@ -85,7 +76,7 @@
           <p class="eyebrow">AUTOMATION</p>
           <b>定时任务</b>
         </div>
-        <span id="schedule-status">默认关闭；开启后会按间隔执行全部供应商任务。</span>
+        <span id="schedule-status">默认关闭；开启后会按间隔为全部供应商执行签到。</span>
       </div>
       <div class="schedule-controls">
         <label class="switch-field">
@@ -103,19 +94,6 @@
         <label class="select-field">
           <select id="schedule-action" aria-label="定时任务内容">
             <option value="checkin">只签到</option>
-            <option value="keepalive">只保活</option>
-            <option value="all">签到 + 保活</option>
-          </select>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m4 6 4 4 4-4"></path>
-          </svg>
-        </label>
-        <label class="select-field probe-field"
-               title="真实活跃对话会发送约 25k 输入并消耗积分；短探活只做低成本连通性检查">
-          <select id="probe-mode" aria-label="保活方式">
-            <option value="activity">真实活跃对话</option>
-            <option value="short">短探活</option>
           </select>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -159,7 +137,7 @@
     </section>
 
     <footer class="footnote">
-      <span>签到与保活状态来自本机插件日志，不包含令牌或模型回复。</span>
+      <span>签到状态来自本机插件日志，不包含令牌或账号凭据。</span>
     </footer>
   </main>
 

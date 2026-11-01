@@ -19,6 +19,11 @@ quota-keepalive 不接管任何供应商的登录，也不会把页面伪装成�
 登录、模型、额度和签到 Hook 仍由各供应商插件维护；本插件负责统一检测、调度、
 执行和展示。
 
+> **当前状态：真实保活暂停**
+>
+> 页面已隐藏顶部“发送保活”、账号级保活开关和保活模型配置；定时任务只执行签到。
+> 已有保活记录仍作为历史日志保留。保活后端代码暂不删除，后续确认稳定后再开放入口。
+
 > **非官方插件声明**
 >
 > 本项目不是 Magpie 官方插件。签到优先调用供应商插件公开的签到接口；真实对话
@@ -51,9 +56,9 @@ quota-keepalive 不接管任何供应商的登录，也不会把页面伪装成�
   签到积分（如 `+100`）、已保活，以及设备受限、额度不足、待重试等具体原因。
   跳过项不再计入“需要处理”，只有明确失败才进入待处理数量。
 - 近 5 天历史：每个有执行记录的账号可展开查看最近 5 天的签到、积分和保活结果。
-- 额度视图：统一展示账号“可用 / 总计”额度窗口和余额变化，并由 Magpie 的额度历史
-  提供趋势数据。供应商若只返回“已用 / 总量”展示值，只有在数值能相互核对时才换算，
-  无法确认语义时保留原始展示，避免把“已用”误当成“可用”。
+- 额度视图：主行明确标注“剩余 / 总计”，副行展示“已用数量 / 已用百分比”，
+  进度条只表示已用比例；余额单列显示。供应商只返回原始文本时标注“供应商显示”，
+  不推断“已用”或“剩余”，避免误读。
 - 自动刷新额度：启用中的供应商每 1 分钟刷新一次，停用的供应商不刷新；顶部可刷新全部
   启用供应商，每个供应商卡片也可单独立即刷新。供应商没有可读取额度卡时记为跳过；
   Magpie 30 秒内已刷新过时使用缓存并记为跳过，只有网络、登录失效或空数据等真实
@@ -192,7 +197,8 @@ npm publish --access public --otp=<6 位动态码>
 magpie plugin options quota-keepalive '{
   "scheduleEnabled": true,
   "scheduleMinutes": 60,
-  "scheduleAction": "all",
+  "scheduleAction": "checkin",
+  "keepaliveEnabled": false,
   "modelPreferences": {
     "workbuddy": "deepseek-v4.1-flash",
     "codearts": "deepseek-v4.1-flash"
@@ -209,7 +215,10 @@ magpie plugin options quota-keepalive '{
 
 - `scheduleEnabled`：是否启用定时任务，默认 `false`。
 - `scheduleMinutes`：统一执行间隔，默认 60 分钟，范围 5 分钟到 7 天。
-- `scheduleAction`：`checkin`、`keepalive` 或 `all`，默认 `checkin`。
+- `scheduleAction`：`checkin`、`keepalive` 或 `all`，默认 `checkin`。只有当
+  `keepaliveEnabled` 为 `true` 时才会保留 `keepalive` / `all`；否则自动降为签到。
+- `keepaliveEnabled`：真实保活后端开关，默认 `false`。当前页面已隐藏所有保活入口，
+  旧配置即使仍是 `all` 也只执行签到。
 - `model`：可选的首选模型；不是白名单，候选仍会按可用性回退。
 - `modelPreferences`：按供应商指定首选模型，例如
   `{"workbuddy":"deepseek-v4.1-flash","codearts":"deepseek-v4.1-flash"}`。未配置时
@@ -228,9 +237,8 @@ magpie plugin options quota-keepalive '{
 - `logMaxBytes`：单个日志上限，默认 2 MiB，超出后轮转一份 `.1`。
 - `statePath`、`logPath`、`snapshotPath`、`commandPath`、`schedulePath`：可选绝对路径。
 
-升级提示：旧版本如果已经显式保存过 `probeMode: "short"`，新版本会尊重这项用户设置，
-不会静默改成 `activity`。需要点亮 WorkBuddy 活跃记录时，请在页面选择“真实活跃对话”
-并保存计划，或者执行 `magpie plugin options quota-keepalive` 更新配置。
+升级提示：旧版本如果保存过 `scheduleAction: "all"` 或 `"keepalive"`，升级后仍会
+自动降为签到，不需要重新保存计划。保活相关配置仅为保留兼容性。
 
 ## 执行周期与失败
 

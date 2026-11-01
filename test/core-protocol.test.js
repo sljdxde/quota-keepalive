@@ -103,6 +103,7 @@ describe("option resolution", () => {
         long: "x".repeat(300),
       },
       modelCandidates: "2",
+      keepaliveEnabled: true,
       scheduleEnabled: true,
       scheduleAction: "all",
       scheduleMinutes: "60",
@@ -124,6 +125,7 @@ describe("option resolution", () => {
     expect(options).toMatchObject({
       model: "model-id",
       modelCandidates: 2,
+      keepaliveEnabled: true,
       scheduleEnabled: true,
       scheduleAction: "all",
       scheduleMinutes: 60,
@@ -167,6 +169,7 @@ describe("option resolution", () => {
     expect(options).toMatchObject({
       model: "",
       modelPreferences: {},
+      keepaliveEnabled: false,
       scheduleEnabled: false,
       scheduleAction: "checkin",
       modelCandidates: 4,
@@ -184,6 +187,11 @@ describe("option resolution", () => {
     expect(options.snapshotPath.endsWith("ui/data.js")).toBe(true)
     expect(resolveKeepaliveOptions(null).watchOptions).toBe(true)
     expect(resolveKeepaliveOptions([]).scheduleAction).toBe("checkin")
+    expect(resolveKeepaliveOptions({ scheduleAction: "all" }).scheduleAction).toBe("checkin")
+    expect(resolveKeepaliveOptions({
+      keepaliveEnabled: true,
+      scheduleAction: "all",
+    }).scheduleAction).toBe("all")
   })
 })
 

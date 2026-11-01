@@ -273,9 +273,9 @@ describe("quota refresh", () => {
       outcome: "cached",
     })
     expect(classifyRefreshResult(result("[]"), [])).toMatchObject({
-      status: "failed",
-      outcome: "failed",
-      message: "Magpie 返回 0 张额度卡",
+      status: "skipped",
+      outcome: "no-card",
+      message: "该供应商当前没有可刷新的额度卡，已跳过。",
     })
     expect(classifyRefreshResult(result(""), null).message).toBe("Magpie 返回空额度数据（退出码 0）")
     expect(classifyRefreshResult(result("", { ok: false, stderr: "network offline" }), null)).toMatchObject({
@@ -330,7 +330,7 @@ describe("quota refresh", () => {
     expect(calls).toHaveLength(2)
   })
 
-  test("reports empty payloads, provider cards with errors, and no enabled providers", async () => {
+  test("skips empty payloads, reports card errors, and handles no enabled providers", async () => {
     const tmp = await dir()
     const config = cfg(tmp)
     const empty = await runRefresh({
@@ -338,8 +338,8 @@ describe("quota refresh", () => {
       provider: "provider",
       runMagpieJson: async () => result("[]"),
     })
-    expect(empty.status).toBe("failed")
-    expect(empty.summary).toBe("额度刷新完成：1 个失败。")
+    expect(empty.status).toBe("skipped")
+    expect(empty.summary).toBe("额度刷新完成：1 个跳过。")
 
     const cardError = await runRefresh({
       config,
@@ -422,22 +422,27 @@ describe("quota refresh", () => {
     await writeFile(join(config.configHome, "plugin-providers.json"), JSON.stringify([
       { id: "good", name: "Good", accounts: [{ key: "a" }] },
       { id: "qoder-cn", name: "Qoder", accounts: [{ key: "b" }] },
+      { id: "codex", name: "Codex", accounts: [{ key: "c" }] },
     ]), "utf8")
     const refreshed = await runRefresh({
       config,
-      runMagpieJson: async (args) => args[2] === "qoder-cn"
-        ? result("", {
+      runMagpieJson: async (args) => {
+        if (args[2] === "qoder-cn") {
+          return result("", {
             ok: false,
             stderr: "no subscription, plan or key balance of qoder-cn · magpie quota lists them",
           })
-        : result(JSON.stringify([{ provider: args[2] }])),
+        }
+        if (args[2] === "codex") return result("[]")
+        return result(JSON.stringify([{ provider: args[2] }]))
+      },
     })
     expect(refreshed).toMatchObject({
       status: "success",
-      summary: "额度刷新完成：1 个供应商成功，1 个跳过。",
+      summary: "额度刷新完成：1 个供应商成功，2 个跳过。",
       error: "",
     })
-    expect(refreshed.accounts.map((item) => item.status)).toEqual(["success", "skipped"])
+    expect(refreshed.accounts.map((item) => item.status)).toEqual(["success", "skipped", "skipped"])
   })
 
   test("skips a second refresh while the first one is still running", async () => {

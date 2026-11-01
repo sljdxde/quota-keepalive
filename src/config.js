@@ -22,6 +22,7 @@ export const DEFAULT_KEEPALIVE = Object.freeze({
   probeMode: "activity",
   probeMessage: DEFAULT_PROBE_MESSAGE,
   maxAttempts: 3,
+  keepaliveEnabled: false,
   scheduleEnabled: false,
   scheduleAction: "checkin",
   scheduleMinutes: 60,
@@ -61,15 +62,18 @@ export function resolveKeepaliveOptions(raw) {
   const probeMessage = typeof source.probeMessage === "string"
     ? source.probeMessage.trim().slice(0, 500)
     : ""
-  const scheduleAction = ["checkin", "keepalive", "all"].includes(source.scheduleAction)
+  const requestedScheduleAction = ["checkin", "keepalive", "all"].includes(source.scheduleAction)
     ? source.scheduleAction
     : DEFAULT_KEEPALIVE.scheduleAction
+  const keepaliveEnabled = source.keepaliveEnabled === true
+  const scheduleAction = keepaliveEnabled ? requestedScheduleAction : "checkin"
   return {
     model,
     modelPreferences: modelPreferences(source.modelPreferences),
     providerPreferences: normalizeProviderPreferences(source.providerPreferences),
     accountPreferences: normalizeAccountPreferences(source.accountPreferences),
     modelCandidates: integerIn(source.modelCandidates, DEFAULT_KEEPALIVE.modelCandidates, 1, 12),
+    keepaliveEnabled,
     scheduleEnabled: source.scheduleEnabled === true,
     scheduleAction,
     scheduleMinutes: integerIn(source.scheduleMinutes, DEFAULT_KEEPALIVE.scheduleMinutes, 5, 10_080),

@@ -204,6 +204,7 @@ describe("scheduler", () => {
     await mkdir(snapshotDir)
     const config = baseConfig(tmp, {
       scheduleEnabled: true,
+      keepaliveEnabled: true,
       scheduleAction: "keepalive",
       scheduleMinutes: 5,
       snapshotPath: snapshotDir,
@@ -221,6 +222,7 @@ describe("scheduler", () => {
     const tmp = await dir()
     const config = baseConfig(tmp, {
       scheduleEnabled: true,
+      keepaliveEnabled: true,
       scheduleAction: "keepalive",
       scheduleMinutes: 5,
     })
@@ -265,6 +267,7 @@ describe("scheduler", () => {
     const tmp = await dir()
     const config = baseConfig(tmp, {
       scheduleEnabled: true,
+      keepaliveEnabled: true,
       scheduleAction: "keepalive",
       scheduleMinutes: 5,
     })

@@ -1,5 +1,6 @@
 (() => {
   const $ = (id) => document.getElementById(id)
+  const KEEPALIVE_VISIBLE = false
   const ACTIONS = {
     detect: { title: "检测账号", detail: "正在读取 Magpie 当前已登录的供应商与账号。" },
     checkin: { title: "全部签到", detail: "正在让已有签到能力的供应商执行签到。" },
@@ -265,7 +266,7 @@
 
   function accountNotes(account, provider) {
     const notes = []
-    for (const task of ["checkin", "keepalive"]) {
+    for (const task of KEEPALIVE_VISIBLE ? ["checkin", "keepalive"] : ["checkin"]) {
       if (!provider?.[`${task}Supported`]) continue
       const point = todayPoint(account, task)
       if (!point || point.success) continue
@@ -295,7 +296,7 @@
   function accountHistory(account, provider, index) {
     const days = activityDays(account)
     if (!days.length) return ""
-    if (!days.some((day) => day?.checkin || day?.keepalive)) return ""
+    if (!days.some((day) => day?.checkin || (KEEPALIVE_VISIBLE && day?.keepalive))) return ""
     const summary = account?.activity?.summary || {}
     const key = `${provider?.id || ""}|${account?.keyTag || ""}|${index}`
     return `<details class="account-history" data-history-key="${escapeHtml(key)}"${
@@ -303,9 +304,11 @@
     }>
       <summary>
         <span>近 5 天</span>
-        <small>签到 ${number(summary.checkinDays)}/${number(summary.days) || days.length} · 保活 ${
-          number(summary.keepaliveDays)
-        }/${number(summary.days) || days.length}</small>
+        <small>签到 ${number(summary.checkinDays)}/${number(summary.days) || days.length}${
+          KEEPALIVE_VISIBLE ? ` · 保活 ${number(summary.keepaliveDays)}/${
+            number(summary.days) || days.length
+          }` : ""
+        }</small>
         <span class="history-chevron" aria-hidden="true">›</span>
       </summary>
       <div class="history-days">
@@ -320,11 +323,11 @@
           } else if (checkin) {
             chips.push(`<span class="history-chip muted">未签到</span>`)
           }
-          if (keepalive?.success) {
+          if (KEEPALIVE_VISIBLE && keepalive?.success) {
             chips.push(`<span class="history-chip good">保活</span>`)
-          } else if (keepalive?.status === "failed") {
+          } else if (KEEPALIVE_VISIBLE && keepalive?.status === "failed") {
             chips.push(`<span class="history-chip bad">保活失败</span>`)
-          } else if (keepalive) {
+          } else if (KEEPALIVE_VISIBLE && keepalive) {
             chips.push(`<span class="history-chip muted">未保活</span>`)
           }
           return `<div class="history-day">
@@ -348,15 +351,11 @@
     const today = data?.summary?.today || {}
     const accounts = number(today.accounts)
     const checkinDone = number(today.checkinDone)
-    const keepaliveDone = number(today.keepaliveDone)
     const checkinSuccess = number(today.checkin?.success)
     const checkinSkipped = number(today.checkin?.skipped)
     const checkinFailed = number(today.checkin?.failed)
-    const keepaliveSuccess = number(today.keepalive?.success)
-    const keepaliveSkipped = number(today.keepalive?.skipped)
-    const keepaliveFailed = number(today.keepalive?.failed)
-    const failed = checkinFailed + keepaliveFailed
-    const skipped = checkinSkipped + keepaliveSkipped
+    const failed = checkinFailed
+    const skipped = checkinSkipped
     const taskDetail = (success, skippedCount, failedCount) => [
       `${success} 成功`,
       skippedCount ? `${skippedCount} 跳过` : "",
@@ -373,25 +372,19 @@
         checkinFailed ? "bad" : checkinSkipped ? "warn" : "",
       ),
       stat(
-        "今日保活",
-        String(keepaliveDone),
-        keepaliveDone || keepaliveSkipped || keepaliveFailed
-          ? taskDetail(keepaliveSuccess, keepaliveSkipped, keepaliveFailed)
-          : "等待手动触发",
-        keepaliveFailed ? "bad" : keepaliveSkipped ? "warn" : "",
-      ),
-      stat(
         "需要处理",
         String(failed),
-        failed
-          ? `签到 ${checkinFailed} · 保活 ${keepaliveFailed}`
-          : skipped ? `暂无失败 · ${skipped} 项跳过` : "暂无失败",
+        failed ? `签到 ${checkinFailed}` : skipped ? `暂无失败 · ${skipped} 项跳过` : "暂无失败",
         failed ? "bad" : "",
       ),
     ].join("")
   }
 
-  const quotaView = window.QuotaKeepaliveFormat?.quotaView || (() => "额度待检测")
+  const quotaItems = window.QuotaKeepaliveFormat?.quotaItems || (() => [{
+    kind: "pending",
+    name: "额度",
+    text: "额度待检测",
+  }])
 
   function quotaTone(account) {
     const history = Array.isArray(account?.history) ? account.history : []
@@ -418,15 +411,60 @@
       preserveAspectRatio="none" role="img" aria-label="最近额度变化"><polyline points="${points}"></polyline></svg>`
   }
 
+  function quotaItemHtml(item) {
+    if (item.kind === "meter") {
+      const unit = item.unit ? ` ${item.unit}` : ""
+      const progress = Math.max(0, Math.min(100, number(item.progress)))
+      const label = `${item.name}已用 ${formatNumber(item.percent)}%`
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-name">${escapeHtml(item.name)}</span>
+          <span class="quota-window-value"><b>剩余 ${escapeHtml(formatNumber(item.remaining))}</b> / ${
+            escapeHtml(formatNumber(item.total))
+          }${escapeHtml(unit)}</span>
+        </div>
+        <div class="quota-meter ${escapeHtml(item.level)}" role="progressbar"
+          aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow="${escapeHtml(formatNumber(progress))}">
+          <i style="width:${progress}%"></i>
+        </div>
+        <div class="quota-window-foot">
+          <span>已用 ${escapeHtml(formatNumber(item.used))}${escapeHtml(unit)}</span>
+          <span>${escapeHtml(formatNumber(item.percent))}%</span>
+        </div>
+      </div>`
+    }
+    const detail = item.kind === "display"
+      ? "供应商原样显示，不推断已用或剩余"
+      : item.detail || ""
+    return `<div class="quota-window quota-window-plain">
+      <div class="quota-window-head">
+        <span class="quota-window-name">${escapeHtml(item.name)}</span>
+        <span class="quota-window-value">${escapeHtml(item.text)}</span>
+      </div>
+      ${detail ? `<div class="quota-window-foot">${escapeHtml(detail)}</div>` : ""}
+    </div>`
+  }
+
+  function accountQuota(account) {
+    const items = quotaItems(account)
+    return `<div class="account-quota ${quotaTone(account)}" aria-label="额度信息">
+      <div class="account-quota-head">
+        <span class="account-quota-title"><b>额度</b><span>进度条 = 已用比例</span></span>
+        ${quotaSparkline(account)}
+      </div>
+      <div class="account-quota-windows">${items.map(quotaItemHtml).join("")}</div>
+    </div>`
+  }
+
   function accountRow(account, provider, index) {
     const latest = account?.latest
-    const quota = quotaView(account)
     const actualModel = String(
       account?.lastModel || account?.activity?.today?.keepalive?.model || "",
     ).trim()
     const chosen = selectedModel(provider)
     const automatic = provider?.defaultModel || provider?.cheapestModel
-    const modelLabel = provider?.keepaliveSupported
+    const modelLabel = KEEPALIVE_VISIBLE && provider?.keepaliveSupported
       ? actualModel
         ? `实际模型 ${modelName(provider, actualModel)}`
         : chosen
@@ -435,10 +473,9 @@
             ? `自动首选 ${automatic.name || automatic.id}`
             : "模型待选择"
       : ""
-    const quotaToneClass = quotaTone(account)
     const taskRows = [
       provider.checkinSupported ? taskRow(provider, account, "checkin") : "",
-      provider.keepaliveSupported ? taskRow(provider, account, "keepalive") : "",
+      KEEPALIVE_VISIBLE && provider.keepaliveSupported ? taskRow(provider, account, "keepalive") : "",
     ].filter(Boolean).join("")
     const detail = latest
       ? `${EVENT_NAMES[latest.event] || latest.event || "任务"} · ${relation(latest.at)}`
@@ -453,14 +490,15 @@
           </div>
         </div>
       </div>
+      ${accountQuota(account)}
       <div class="account-meta">
-        <span class="quota ${quotaToneClass}">${escapeHtml(quota)}</span>
-        ${quotaSparkline(account)}
         ${modelLabel ? `<span class="model" title="${escapeHtml(actualModel || chosen?.id || automatic?.id || "")}">${
           escapeHtml(modelLabel)
         }</span>` : ""}
         <span>${provider.checkinSupported ? "支持签到" : "无签到能力"}</span>
-        <span>${provider.keepaliveSupported ? "支持真实保活" : "暂不保活"}</span>
+        ${KEEPALIVE_VISIBLE
+          ? `<span>${provider.keepaliveSupported ? "支持真实保活" : "暂不保活"}</span>`
+          : ""}
       </div>
       ${taskRows ? `<div class="account-tasks">${taskRows}</div>` : ""}
       ${accountHistory(account, provider, index)}
@@ -595,10 +633,10 @@
     const chosen = selectedModel(provider)
     const capabilities = [
       provider?.checkinSupported ? "签到" : "",
-      provider?.keepaliveSupported ? "保活" : "",
+      KEEPALIVE_VISIBLE && provider?.keepaliveSupported ? "保活" : "",
     ].filter(Boolean).join(" + ") || "仅展示"
     const taskChips = []
-    for (const task of ["checkin", "keepalive"]) {
+    for (const task of KEEPALIVE_VISIBLE ? ["checkin", "keepalive"] : ["checkin"]) {
       if (!provider?.[`${task}Supported`]) continue
       const activeAccounts = accounts.filter((account) => taskOn(provider, account, task))
       taskChips.push(taskChip(activeAccounts.map((account) => todayPoint(account, task)), task))
@@ -623,14 +661,22 @@
         <span class="provider-mark">${mark}</span>
         <span class="provider-title">
           <strong>${escapeHtml(provider?.name || provider?.id || "未知供应商")}</strong>
-          <small>${accounts.length} 个账号 · ${escapeHtml(capabilities)}${chosen ? ` · 指定模型 ${escapeHtml(chosen.name || chosen.id)}` : model ? ` · 默认最可用 ${escapeHtml(model.name || model.id)}` : ""}</small>
+          <small>${accounts.length} 个账号 · ${escapeHtml(capabilities)}${
+            KEEPALIVE_VISIBLE
+              ? chosen
+                ? ` · 指定模型 ${escapeHtml(chosen.name || chosen.id)}`
+                : model
+                  ? ` · 默认最可用 ${escapeHtml(model.name || model.id)}`
+                  : ""
+              : ""
+          }</small>
         </span>
         <span class="provider-states">${enabled ? states : `<span class="status-chip muted">已停用</span>`}</span>
         ${providerRefresh(provider, id)}
         ${providerToggle(provider, id)}
         <span class="chevron" aria-hidden="true">›</span>
       </summary>
-      ${modelPicker(provider, id)}
+      ${KEEPALIVE_VISIBLE ? modelPicker(provider, id) : ""}
       <div class="accounts">${accounts.map((account, accountIndex) =>
         accountRow(account, provider, accountIndex)).join("")}</div>
     </details>`
@@ -1108,7 +1154,7 @@
       .reverse()
     $("logs").innerHTML = records.length
       ? records.map((record) => logRecord(record, allRecords)).join("")
-      : `<div class="empty compact"><b>还没有执行记录</b><span>签到或保活完成后，这里会显示每次结果。</span></div>`
+      : `<div class="empty compact"><b>还没有执行记录</b><span>签到完成后，这里会显示每次结果。</span></div>`
     $("log-count").textContent = records.length ? `最近 ${records.length} 条` : "暂无记录"
   }
 
@@ -1163,7 +1209,10 @@
 
   function setBusy(value, text = "") {
     busy = value
-    for (const id of ["detect", "checkin", "keepalive"]) $(id).disabled = value
+    for (const id of ["detect", "checkin", "keepalive"]) {
+      const button = $(id)
+      if (button) button.disabled = value
+    }
     updateRefreshControls()
     if (text) toast(text)
   }
@@ -1190,15 +1239,7 @@
 
   function scheduleDescription(options = {}) {
     if (options.scheduleEnabled !== true) return "自动任务已关闭，可手动执行或在这里开启。"
-    const action = {
-      checkin: "签到",
-      keepalive: "真实保活",
-      all: "签到 + 真实保活",
-    }[options.scheduleAction] || "签到"
-    const probe = options.probeMode === "activity" || options.probeMode === "context"
-      ? "真实活跃对话（会消耗积分）"
-      : "短探活（不保证活跃记录）"
-    return `每 ${number(options.scheduleMinutes) || 60} 分钟执行一次${action}；${probe}。`
+    return `每 ${number(options.scheduleMinutes) || 60} 分钟为启用中的供应商执行一次签到。`
   }
 
   async function loadSchedule(showToast = false, refresh = false) {
@@ -1213,10 +1254,7 @@
       accountPreferences = normalizePreferences(options.accountPreferences)
       $("schedule-enabled").checked = options.scheduleEnabled === true
       $("schedule-minutes").value = String(options.scheduleMinutes || 60)
-      $("schedule-action").value = ["checkin", "keepalive", "all"].includes(options.scheduleAction)
-        ? options.scheduleAction
-        : "checkin"
-      $("probe-mode").value = options.probeMode === "short" ? "short" : "activity"
+      $("schedule-action").value = "checkin"
       $("schedule-status").textContent = scheduleDescription(options)
       if (showToast) toast("定时计划已保存")
     } catch (error) {
@@ -1231,8 +1269,7 @@
       ...latest,
       scheduleEnabled: $("schedule-enabled").checked,
       scheduleMinutes: minutes,
-      scheduleAction: $("schedule-action").value,
-      probeMode: $("probe-mode").value,
+      scheduleAction: "checkin",
     })))
     await loadSchedule(true)
   }
@@ -1438,7 +1475,7 @@
     }, true)
     $("detect").addEventListener("click", () => queue("detect"))
     $("checkin").addEventListener("click", () => queue("checkin"))
-    $("keepalive").addEventListener("click", () => openConfirm())
+    $("keepalive")?.addEventListener("click", () => openConfirm())
     $("schedule-save").addEventListener("click", () => {
       saveSchedule().catch((error) => toast(`保存失败：${error?.message || error}`, "bad"))
     })

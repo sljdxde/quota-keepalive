@@ -23,6 +23,12 @@ It does not take over provider sign-in. Magpie and the installed provider plugin
 keep owning credentials, model lists, quotas, and the provider's own `auth.checkin`
 hook. This plugin only coordinates those capabilities and presents the results.
 
+> **Current status: real-chat keepalive paused**
+>
+> The page hides the global keepalive action, account-level keepalive controls, and
+> model selection. Scheduled jobs now run check-in only. Existing keepalive records
+> remain available as history while the backend code stays in place for a later release.
+
 ## Unofficial plugin notice
 
 > This project is not an official Magpie plugin.
@@ -57,6 +63,8 @@ hook. This plugin only coordinates those capabilities and presents the results.
 - Persist the next scheduled run so an overdue task can catch up after a Magpie
   restart or computer sleep.
 - Show today's result, a five-day account history, run details, and quota trends.
+- Label quota rows explicitly as remaining versus total, show used amounts and
+  percentages separately, and keep vendor-only displays uninterpreted.
 - Keep refresh-only events out of the check-in/keepalive run list.
 - Refresh quotas every minute for enabled providers, and support per-provider or
   refresh-all actions.
@@ -185,7 +193,8 @@ The page writes plugin-level options. The same values can be changed from the CL
 magpie plugin options quota-keepalive '{
   "scheduleEnabled": true,
   "scheduleMinutes": 60,
-  "scheduleAction": "all",
+  "scheduleAction": "checkin",
+  "keepaliveEnabled": false,
   "modelPreferences": {
     "workbuddy": "deepseek-v4.1-flash",
     "codearts": "deepseek-v4.1-flash"
@@ -203,6 +212,8 @@ magpie plugin options quota-keepalive '{
 - `scheduleEnabled`: enable the plugin scheduler. Default `false`.
 - `scheduleMinutes`: shared interval, default `60`, range 5 minutes to 7 days.
 - `scheduleAction`: `checkin`, `keepalive`, or `all`. Default `checkin`.
+- `keepaliveEnabled`: backend keepalive switch. Default `false`. The page hides all
+  keepalive controls, and old `keepalive` / `all` schedules fall back to check-in.
 - `model`: optional preferred model; it is not a hard allowlist.
 - `modelPreferences`: preferred model per provider.
 - `modelCandidates`: maximum fallback candidates per account, default `4`.
@@ -217,9 +228,8 @@ magpie plugin options quota-keepalive '{
 - `statePath`, `logPath`, `snapshotPath`, `commandPath`, `schedulePath`: optional
   absolute paths.
 
-Upgrade note: an old installation that explicitly saved `probeMode: "short"` keeps
-that choice. Select **Real activity** and save the schedule (or update plugin
-options) when you want WorkBuddy activity records to be written.
+Upgrade note: old schedules saved as `all` or `keepalive` automatically fall back
+to check-in, so no page change is required. Keepalive options remain for compatibility.
 
 ## Logs
 

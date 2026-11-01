@@ -80,7 +80,7 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
 .hero-tools { display: flex; align-items: center; gap: 8px; }
 .actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   flex: 1;
   min-width: 0;
@@ -420,7 +420,7 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -662,13 +662,41 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
 .account-name div { min-width: 0; }
 .account-name strong { display: block; font-size: 12.5px; }
 .account-name small { display: block; margin-top: 1px; color: var(--muted); font-size: 10.5px; }
+.account-quota {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0 36px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg) 42%, var(--card));
+}
+.account-quota-head { display: flex; align-items: center; justify-content: space-between; min-height: 16px; }
+.account-quota-title { display: flex; align-items: baseline; gap: 8px; color: var(--ink-2); font-size: 10.5px; }
+.account-quota-title b { font-weight: 700; }
+.account-quota-title span { color: var(--faint); font-size: 9.5px; font-weight: 500; }
+.account-quota-windows { display: grid; gap: 8px; }
+.quota-window { display: grid; gap: 4px; }
+.quota-window-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.quota-window-name { overflow: hidden; color: var(--muted); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.quota-window-value { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.quota-window-value b { color: var(--ink); font-size: 12px; font-weight: 700; }
+.quota-meter {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--faint) 20%, transparent);
+}
+.quota-meter i { display: block; height: 100%; border-radius: inherit; background: var(--green); transition: width .25s ease; }
+.quota-meter.warning i { background: var(--amber); }
+.quota-meter.exhausted i { background: var(--red); }
+.quota-window-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--faint); font-size: 10px; }
+.quota-window-plain .quota-window-value { white-space: normal; text-align: right; }
+.quota-window-plain .quota-window-foot { justify-content: flex-start; }
+.account-quota .quota-spark { width: 54px; height: 16px; padding: 0; background: transparent; overflow: visible; }
 .account-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 0 36px; color: var(--muted); font-size: 10.5px; }
 .account-meta span { padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, var(--bg) 70%, var(--card)); }
-.account-meta .quota { color: var(--ink-2); }
-.account-meta .quota.up { color: var(--green); }
-.account-meta .quota.down { color: var(--amber); }
 .account-meta .model { color: var(--accent); background: var(--accent-soft); }
-.account-meta .quota-spark { width: 54px; height: 16px; margin-left: -3px; padding: 0; background: transparent; overflow: visible; }
 .quota-spark polyline { fill: none; stroke: var(--faint); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .quota-spark.up polyline { stroke: var(--green); }
 .quota-spark.down polyline { stroke: var(--amber); }
@@ -1161,6 +1189,7 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   .section-tools { flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
   .provider-tools { align-items: stretch; }
   .model-picker { width: 100%; }
+  .account-quota { margin-left: 0; }
   .account-meta { margin-left: 0; }
   .account-tasks { margin-left: 0; }
   .account-task-row { grid-template-columns: 34px minmax(0, 1fr); }

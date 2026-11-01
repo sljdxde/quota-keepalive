@@ -672,12 +672,15 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(snapshot.runHistory[0].children).toHaveLength(1)
   })
 
-  test("the page exposes detection, check-in, keepalive, scheduling, and logs", async () => {
+  test("the page exposes detection, check-in, scheduling, and logs while keepalive is paused", async () => {
     const root = new URL("..", import.meta.url)
     const html = await readFile(new URL("ui/index.html", root), "utf8")
-    for (const id of ["detect", "checkin", "keepalive", "probe-mode", "schedule-save", "logs"]) {
+    for (const id of ["detect", "checkin", "schedule-save", "logs"]) {
       expect(html).toContain(`id="${id}"`)
     }
+    expect(html).not.toContain('id="keepalive"')
+    expect(html).not.toContain('id="probe-mode"')
+    expect(html).not.toContain("<span>发送保活</span>")
     expect(html).toContain("全部已适配供应商")
     const app = await readFile(new URL("ui/app.js", root), "utf8")
     expect(app).toContain("model-search")
@@ -687,6 +690,11 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(app).toContain("data-provider-refresh")
     expect(app).toContain("pendingProvider")
     expect(app).toContain("QuotaKeepaliveFormat")
+    expect(app).toContain("quotaItems")
+    expect(app).toContain("accountQuota")
+    expect(app).toContain("剩余")
+    expect(app).toContain("已用")
+    expect(app).toContain("供应商原样显示")
     expect(app).toContain("实际模型")
     expect(app).toContain("最近实际使用")
     expect(app).toContain("lastModel")
@@ -707,8 +715,9 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(html).toContain("<span>刷新额度</span>")
     expect(html).toContain('title="刷新全部启用供应商的实时额度"')
     expect(html).toContain('aria-label="刷新全部启用供应商的实时额度"')
-    expect(html).toContain('<option value="activity">真实活跃对话</option>')
-    expect(html).toContain('<option value="short">短探活</option>')
+    expect(html).not.toContain('<option value="keepalive">')
+    expect(html).not.toContain('<option value="all">')
+    expect(app).toContain("const KEEPALIVE_VISIBLE = false")
     expect(html).toContain("<h1>额度签到</h1>")
     expect(html).toContain('src="options-writer.js"')
     expect(app).toContain("writePageOptions")

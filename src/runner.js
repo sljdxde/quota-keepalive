@@ -231,6 +231,14 @@ export function classifyRefreshResult(result, body) {
       cards,
     }
   }
+  if (result?.ok && Array.isArray(body) && cards.length === 0) {
+    return {
+      status: "skipped",
+      outcome: "no-card",
+      message: "该供应商当前没有可刷新的额度卡，已跳过。",
+      cards,
+    }
+  }
   const empty = result?.ok
     ? Array.isArray(body) ? "Magpie 返回 0 张额度卡" : "Magpie 返回空额度数据（退出码 0）"
     : ""
