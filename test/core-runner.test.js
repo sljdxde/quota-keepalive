@@ -7,6 +7,7 @@ import {
   defaultRunMagpieJson,
   enabledProviderIds,
   parseJsonOutput,
+  runInBackgroundTask,
   runCommand,
   runRefresh,
 } from "../src/runner.js"
@@ -474,6 +475,40 @@ describe("quota refresh", () => {
 })
 
 describe("page commands", () => {
+  test("contains background task values, rejections, and synchronous throws", async () => {
+    expect(await runInBackgroundTask(undefined)).toBeUndefined()
+    expect(await runInBackgroundTask(null)).toBeNull()
+    expect(await runInBackgroundTask(42)).toBe(42)
+    expect(await runInBackgroundTask(() => 7)).toBe(7)
+    expect(await runInBackgroundTask(Promise.resolve("ok"))).toBe("ok")
+    expect(await runInBackgroundTask(Promise.reject(new Error("async boom")))).toBeUndefined()
+    expect(await runInBackgroundTask(() => {
+      throw new Error("sync boom")
+    })).toBeUndefined()
+  })
+
+  test("returns before a pending command's background task finishes", async () => {
+    const tmp = await dir()
+    const config = cfg(tmp)
+    const backgroundTasks = []
+    const queued = await consumePendingCommand({
+      config,
+      rawOptions: { pendingId: "deferred-run", pendingAction: "detect" },
+      runMagpieJson: async () => result(JSON.stringify([])),
+      runInBackground: (task) => {
+        backgroundTasks.push(task)
+        return Promise.resolve()
+      },
+    })
+
+    expect(queued).toMatchObject({ id: "deferred-run", status: "running" })
+    expect(backgroundTasks).toHaveLength(1)
+    expect((await readCommand(config.commandPath))?.status).toBe("running")
+
+    await backgroundTasks[0]
+    expect((await readCommand(config.commandPath))?.status).toBe("success")
+  })
+
   test("ignores invalid pending options and reports a busy queue", async () => {
     const tmp = await dir()
     const config = cfg(tmp)

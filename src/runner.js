@@ -34,6 +34,14 @@ const BUILTIN_PROVIDERS = Object.freeze([
 
 let refreshRunning = false
 
+export function runInBackgroundTask(task) {
+  try {
+    return Promise.resolve(typeof task === "function" ? task() : task).catch(() => {})
+  } catch {
+    return Promise.resolve()
+  }
+}
+
 function nowIso() {
   return new Date().toISOString()
 }
@@ -551,6 +559,7 @@ export async function consumePendingCommand({
   runMagpieJson = defaultRunMagpieJson,
   checkin = null,
   keepalive = null,
+  runInBackground = runInBackgroundTask,
 }) {
   const id = sanitize(rawOptions.pendingId, 80)
   const action = sanitize(rawOptions.pendingAction, 24)
@@ -570,7 +579,7 @@ export async function consumePendingCommand({
   const command = await claimCommand({ commandPath: config.commandPath, id })
   if (!command || command.action !== action) return null
 
-  void (async () => {
+  const task = (async () => {
     let outcome
     try {
       outcome = await runCommand({
@@ -618,6 +627,7 @@ export async function consumePendingCommand({
       await refreshSnapshot(config, null)
     }
   })()
+  runInBackground(task)
 
   return { id, action, status: "running" }
 }

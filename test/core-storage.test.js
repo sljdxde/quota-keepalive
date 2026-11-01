@@ -14,7 +14,12 @@ import {
   withLock,
   writeState,
 } from "../src/commands.js"
-import { PLUGIN_DIR, readLivePluginOptions } from "../src/live-options.js"
+import {
+  PLUGIN_DIR,
+  PLUGIN_NAME,
+  pluginSpecMatches,
+  readLivePluginOptions,
+} from "../src/live-options.js"
 import {
   accountTag,
   appendDailyLog,
@@ -184,23 +189,66 @@ describe("command queue", () => {
 })
 
 describe("live plugin options", () => {
-  test("reads only the matching absolute plugin entry", async () => {
+  test("matches local paths and exact npm specs but rejects lookalikes and ranges", () => {
+    for (const spec of [
+      PLUGIN_DIR,
+      PLUGIN_NAME,
+      `${PLUGIN_NAME}@latest`,
+      `${PLUGIN_NAME}@0.1.8`,
+      `npm:${PLUGIN_NAME}`,
+      `npm:${PLUGIN_NAME}@latest`,
+      `npm:${PLUGIN_NAME}@0.1.8`,
+      `npm:${PLUGIN_NAME}@0.1.8-beta.1`,
+      `npm:${PLUGIN_NAME}@0.1.8+build.1`,
+    ]) {
+      expect(pluginSpecMatches(spec)).toBe(true)
+    }
+
+    for (const spec of [
+      "",
+      null,
+      "relative",
+      "./relative",
+      `${PLUGIN_NAME}-other`,
+      `${PLUGIN_NAME}/subpath`,
+      `${PLUGIN_NAME}@^0.1.8`,
+      `${PLUGIN_NAME}@~0.1.8`,
+      `${PLUGIN_NAME}@0.1`,
+      `${PLUGIN_NAME}@*`,
+      `${PLUGIN_NAME}@v0.1.8`,
+      `npm:${PLUGIN_NAME}@next`,
+      `npm:${PLUGIN_NAME}@^0.1.8`,
+      `npm:${PLUGIN_NAME}-other`,
+      "github:sljdxde/quota-keepalive",
+      "https://example.com/quota-keepalive.tgz",
+    ]) {
+      expect(pluginSpecMatches(spec)).toBe(false)
+    }
+  })
+
+  test("reads only the matching plugin entry with a supported options shape", async () => {
     const tmp = await dir("quota-live-")
     expect(await readLivePluginOptions(tmp.path("missing"))).toEqual({})
     await writeFile(tmp.path("plugins.json"), "{bad", "utf8")
     expect(await readLivePluginOptions(tmp.dir)).toEqual({})
+    await writeFile(tmp.path("plugins.json"), JSON.stringify({ plugins: {} }), "utf8")
+    expect(await readLivePluginOptions(tmp.dir)).toEqual({})
     await writeFile(tmp.path("plugins.json"), JSON.stringify({
       plugins: [
         { spec: "relative", options: { nope: true } },
-        { spec: PLUGIN_DIR, options: { yes: true } },
-        { spec: PLUGIN_DIR, options: [] },
+        { spec: `${PLUGIN_NAME}-other`, options: { nope: true } },
+        { spec: `npm:${PLUGIN_NAME}@latest`, options: { yes: true } },
+        { spec: PLUGIN_DIR, options: { duplicate: true } },
       ],
     }), "utf8")
     expect(await readLivePluginOptions(tmp.dir)).toEqual({ yes: true })
-    await writeFile(tmp.path("plugins.json"), JSON.stringify({
-      plugins: [{ spec: PLUGIN_DIR, options: [] }],
-    }), "utf8")
-    expect(await readLivePluginOptions(tmp.dir)).toEqual({})
+
+    for (const options of [null, "invalid", [], 1]) {
+      await writeFile(tmp.path("plugins.json"), JSON.stringify({
+        plugins: [{ spec: PLUGIN_DIR, options }],
+      }), "utf8")
+      expect(await readLivePluginOptions(tmp.dir)).toEqual({})
+    }
   })
 })
 
