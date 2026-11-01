@@ -15,6 +15,27 @@
 
   const clampPercent = (value) => Math.max(0, Math.min(100, number(value)))
 
+  function displayAmount(value) {
+    const match = String(value || "").trim().match(
+      /^(\d+(?:\.\d*)?|\.\d+)(e[+-]?\d+)?([kmb])?$/i,
+    )
+    if (!match) return null
+    const scale = { k: 1e3, m: 1e6, b: 1e9 }[String(match[3] || "").toLowerCase()] || 1
+    const parsed = Number(`${match[1]}${match[2] || ""}`) * scale
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  function displayPair(display) {
+    const pair = String(display || "").split("·", 1)[0].match(
+      /^\s*([0-9.,]+(?:e[+-]?\d+)?[kmb]?)\s*\/\s*([0-9.,]+(?:e[+-]?\d+)?[kmb]?)(?:\s+([a-zA-Z]+))?\s*$/i,
+    )
+    if (!pair) return null
+    const first = displayAmount(pair[1].replace(/,/g, ""))
+    const total = displayAmount(pair[2].replace(/,/g, ""))
+    if (first === null || total === null || total <= 0) return null
+    return { first, total, unit: pair[3] || "" }
+  }
+
   function quotaLevel(percent) {
     if (percent >= 100) return "exhausted"
     if (percent >= 85) return "warning"
@@ -66,6 +87,22 @@
         return meterItem(name, unit, (limit * Math.max(0, usedPercent)) / 100, limit, usedPercent)
       }
     }
+    const pair = limit === null && usedPercent !== null ? displayPair(display) : null
+    if (pair) {
+      const usedShare = (pair.first / pair.total) * 100
+      const usedMatches = Math.abs(usedShare - usedPercent) < 0.75
+      const remainingMatches = Math.abs(100 - usedShare - usedPercent) < 0.75
+      if (usedMatches || !remainingMatches) {
+        return meterItem(name, unit || pair.unit, pair.first, pair.total, usedPercent)
+      }
+      return meterItem(
+        name,
+        unit || pair.unit,
+        pair.total - pair.first,
+        pair.total,
+        usedPercent,
+      )
+    }
     const balance = number(window?.balance)
     if (balance !== null) {
       return {
@@ -75,11 +112,15 @@
       }
     }
     if (usedPercent !== null) {
+      const percent = clampPercent(usedPercent)
       return {
         kind: "percent",
         name,
         text: `已用 ${formatNumber(usedPercent)}%`,
         detail: display ? `供应商显示 ${display}` : "",
+        percent,
+        progress: percent,
+        level: quotaLevel(percent),
       }
     }
     if (display) {

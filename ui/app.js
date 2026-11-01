@@ -434,6 +434,22 @@
         </div>
       </div>`
     }
+    if (item.kind === "percent") {
+      const progress = Math.max(0, Math.min(100, number(item.progress)))
+      const label = `${item.name}已用 ${formatNumber(item.percent)}%`
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-name">${escapeHtml(item.name)}</span>
+          <span class="quota-window-value">已用 ${escapeHtml(formatNumber(item.percent))}%</span>
+        </div>
+        <div class="quota-meter ${escapeHtml(item.level)}" role="progressbar"
+          aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow="${escapeHtml(formatNumber(progress))}">
+          <i style="width:${progress}%"></i>
+        </div>
+        ${item.detail ? `<div class="quota-window-foot">${escapeHtml(item.detail)}</div>` : ""}
+      </div>`
+    }
     const detail = item.kind === "display"
       ? "供应商原样显示，不推断已用或剩余"
       : item.detail || ""

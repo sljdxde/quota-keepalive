@@ -695,6 +695,7 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(app).toContain("剩余")
     expect(app).toContain("已用")
     expect(app).toContain("供应商原样显示")
+    expect(app).toContain('item.kind === "percent"')
     expect(app).toContain("实际模型")
     expect(app).toContain("最近实际使用")
     expect(app).toContain("lastModel")

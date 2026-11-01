@@ -55,17 +55,77 @@ describe("quota display", () => {
   })
 
   test("shows a percentage-only reading without guessing its remaining count", () => {
-    expect(quotaView({
+    const account = {
       quota: {
         windows: [{
           name: "Credits",
           used: 100,
           remaining: 0,
-          display: "100 / 100",
           unit: "credits",
         }],
       },
-    })).toBe("Credits · 已用 100% · 供应商显示 100 / 100")
+    }
+    expect(quotaView(account)).toBe("Credits · 已用 100%")
+    expect(quotaItems(account)[0]).toMatchObject({
+      kind: "percent",
+      percent: 100,
+      progress: 100,
+      level: "exhausted",
+    })
+  })
+
+  test("restores Qoder used and total counts from its display text", () => {
+    expect(quotaItems({
+      quota: {
+        windows: [{
+          name: "Add-on credits",
+          used: 100,
+          display: "400 / 400 credits",
+        }],
+      },
+    })[0]).toEqual({
+      kind: "meter",
+      name: "Add-on credits",
+      unit: "credits",
+      remaining: 0,
+      total: 400,
+      used: 400,
+      percent: 100,
+      progress: 100,
+      level: "exhausted",
+    })
+  })
+
+  test("distinguishes remaining/total display text from Qoder used/total text", () => {
+    expect(quotaItems({
+      quota: {
+        windows: [{
+          name: "Credits",
+          used: 25,
+          display: "300 / 400 credits",
+        }],
+      },
+    })[0]).toMatchObject({
+      kind: "meter",
+      remaining: 300,
+      total: 400,
+      used: 100,
+      unit: "credits",
+      progress: 25,
+    })
+    expect(quotaItems({
+      quota: {
+        windows: [{
+          name: "Credits",
+          used: 100,
+          display: "0 credits left",
+        }],
+      },
+    })[0]).toMatchObject({
+      kind: "percent",
+      progress: 100,
+      level: "exhausted",
+    })
   })
 
   test("uses a supplied remaining count instead of treating it as a percentage", () => {
