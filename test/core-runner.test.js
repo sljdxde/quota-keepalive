@@ -330,6 +330,92 @@ describe("quota refresh", () => {
     expect(calls).toHaveLength(2)
   })
 
+  test("writes refreshed cards to the page snapshot when quotas.json is empty", async () => {
+    const tmp = await dir()
+    const config = cfg(tmp)
+    await mkdir(config.configHome, { recursive: true })
+    await writeFile(join(config.configHome, "plugin-providers.json"), JSON.stringify([{
+      id: "workbuddy",
+      name: "WorkBuddy",
+      accounts: [
+        { key: "one", accountId: "one@example.com" },
+        { key: "two", accountId: "two@example.com" },
+      ],
+    }]), "utf8")
+
+    const refreshResult = await runRefresh({
+      config,
+      provider: "workbuddy",
+      log: async () => {},
+      runMagpieJson: async () => ({
+        ok: true,
+        exitCode: 0,
+        stderr: "",
+        error: "",
+        stdout: JSON.stringify([
+          {
+            provider: "workbuddy",
+            user: "one@example.com",
+            plan: "Free",
+            windows: [{ name: "Credits", remaining: 1299.37, limit: 3620 }],
+            readAt: "2026-11-01T10:00:00Z",
+          },
+          {
+            provider: "workbuddy",
+            user: "two@example.com",
+            plan: "Free",
+            windows: [{ name: "Credits", remaining: 941.01, limit: 2400 }],
+            readAt: "2026-11-01T10:01:00Z",
+          },
+        ]),
+      }),
+    })
+
+    expect(refreshResult.status).toBe("success")
+    const raw = await readFile(config.snapshotPath, "utf8")
+    const snapshot = JSON.parse(raw
+      .replace(/^window\.DailyKeepaliveSnapshot = /, "")
+      .replace(/;\s*$/, ""))
+    expect(snapshot.providers[0].accounts.map((account) => ({
+      label: account.label,
+      plan: account.quota?.plan,
+      remaining: account.quota?.windows[0]?.remaining,
+    }))).toEqual([
+      { label: "on***@example.com", plan: "Free", remaining: 1299.37 },
+      { label: "tw***@example.com", plan: "Free", remaining: 941.01 },
+    ])
+  })
+
+  test("keeps cards returned by Magpie's refresh cache in the page snapshot", async () => {
+    const tmp = await dir()
+    const config = cfg(tmp)
+    await mkdir(config.configHome, { recursive: true })
+    await writeFile(join(config.configHome, "plugin-providers.json"), JSON.stringify([{
+      id: "workbuddy",
+      name: "WorkBuddy",
+      accounts: [{ key: "one", accountId: "one@example.com" }],
+    }]), "utf8")
+
+    const cached = await runRefresh({
+      config,
+      provider: "workbuddy",
+      log: async () => {},
+      runMagpieJson: async () => result(JSON.stringify([{
+        provider: "workbuddy",
+        user: "one@example.com",
+        plan: "Free",
+        windows: [{ name: "Credits", remaining: 42, limit: 100 }],
+      }]), {
+        stderr: "read 5s ago: not asked again before 30s have passed, shown as it was read",
+      }),
+    })
+
+    expect(cached).toMatchObject({ status: "skipped", accounts: [{ outcome: "cached" }] })
+    const raw = await readFile(config.snapshotPath, "utf8")
+    expect(raw).toContain('"remaining": 42')
+    expect(raw).toContain('"limit": 100')
+  })
+
   test("skips empty payloads, reports card errors, and handles no enabled providers", async () => {
     const tmp = await dir()
     const config = cfg(tmp)

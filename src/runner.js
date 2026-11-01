@@ -290,6 +290,7 @@ export async function runRefresh({
   }
 
   const accounts = []
+  const quotaCards = []
   for (const id of providers) {
     const { result, body } = await runJsonCommand({
       args: ["quota", "refresh", id, "--json"],
@@ -298,6 +299,7 @@ export async function runRefresh({
       timeoutMs: Math.max(30_000, Math.min(50_000, Number(config.timeoutMs) || 50_000)),
     })
     const classified = classifyRefreshResult(result, body)
+    if (Array.isArray(classified.cards)) quotaCards.push(...classified.cards)
     accounts.push({
       provider: id,
       account: "",
@@ -324,7 +326,7 @@ export async function runRefresh({
       console.warn(`[quota-keepalive] cannot write quota refresh log: ${errorText(error)}`)
     })
   }
-  await refreshSnapshot(config, null)
+  await refreshSnapshot(config, null, quotaCards)
   const success = accounts.filter((item) => item.status === "success").length
   const failed = accounts.filter((item) => item.status === "failed").length
   const skipped = accounts.filter((item) => item.status === "skipped").length
@@ -358,13 +360,14 @@ async function logCommand(config, entry, run = newRunId()) {
   })
 }
 
-async function refreshSnapshot(config, accountsData) {
+async function refreshSnapshot(config, accountsData, quotaCards = []) {
   await writeDailySnapshot({
     ...(config.configHome ? { configHome: config.configHome } : {}),
     logPath: config.logPath,
     snapshotPath: config.snapshotPath,
     commandPath: config.commandPath,
     accountsData,
+    quotaCards,
   }).catch((error) => {
     console.warn(`[daily-keepalive] ${snapshotWarning(error)}`)
   })

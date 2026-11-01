@@ -261,11 +261,36 @@ function historyByAccount(history) {
   return out
 }
 
-export function quotaByAccount(quotas) {
+function refreshedQuotaCard(card) {
+  if (!object(card) || object(card.quota)) return null
+  const provider = sanitize(card.provider, 80).trim()
+  const user = sanitize(card.user, 240).trim()
+  if (!provider || !user || sanitize(card.error, 300).trim()) return null
+  const windows = (Array.isArray(card.windows) ? card.windows : []).map(publicWindow)
+  const plan = sanitize(card.plan, 80)
+  const balance = typeof card.balance === "number" && Number.isFinite(card.balance)
+    ? String(card.balance)
+    : sanitize(card.balance, 80)
+  if (!windows.length && !plan && !balance) return null
+  const readAt = sanitize(card.readAt || card.asOf || card.at, 40)
+  return {
+    key: cardKey(provider, user).toLowerCase(),
+    entry: {
+      at: readAt,
+      quota: { plan, balance, windows, readAt },
+    },
+  }
+}
+
+export function quotaByAccount(quotas, quotaCards = []) {
   const out = new Map()
   for (const [key, entry] of Object.entries(object(quotas) ? quotas : {})) {
     if (!object(entry?.quota)) continue
     out.set(key.toLowerCase(), entry)
+  }
+  for (const card of Array.isArray(quotaCards) ? quotaCards : []) {
+    const refreshed = refreshedQuotaCard(card)
+    if (refreshed) out.set(refreshed.key, refreshed.entry)
   }
   return out
 }
@@ -581,6 +606,7 @@ export async function readInventory({
   logPath = "",
   records = [],
   accountsData = null,
+  quotaCards = [],
 } = {}) {
   const [providers, checkins, quotas, histories, auth] = await Promise.all([
     readJson(join(configHome, "plugin-providers.json"), []),
@@ -589,7 +615,7 @@ export async function readInventory({
     readJson(join(configHome, "quota-history.json"), {}),
     readJson(join(configHome, "plugin-auth.json"), {}),
   ])
-  const cards = quotaByAccount(quotas)
+  const cards = quotaByAccount(quotas, quotaCards)
   const history = historyByAccount(histories)
   const activity = activityIndex(records)
   const sourceProviders = Array.isArray(providers) ? providers : []

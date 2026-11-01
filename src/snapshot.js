@@ -278,6 +278,7 @@ export async function writeDailySnapshot(options = {}) {
     snapshotPath = defaultSnapshotPath(),
     configHome = undefined,
     accountsData = null,
+    quotaCards = [],
     commandPath = undefined,
   } = options
   const writeCompanion = options.writeCompanion ??
@@ -302,6 +303,7 @@ export async function writeDailySnapshot(options = {}) {
     logPath,
     records,
     accountsData,
+    quotaCards,
   })
   if (!Array.isArray(accountsData)) {
     inventory = carryForwardQuotas(inventory, await readPreviousSnapshot(snapshotPath))

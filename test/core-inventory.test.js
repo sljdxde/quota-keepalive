@@ -175,6 +175,100 @@ describe("account labels", () => {
   })
 })
 
+describe("refreshed quota cards", () => {
+  test("merges valid cards and ignores malformed, errored, or empty cards", () => {
+    const merged = quotaByAccount({
+      "workbuddy/user": {
+        at: "old",
+        quota: { plan: "Old", windows: [{ name: "Credits", remaining: 1 }] },
+      },
+    }, [
+      {
+        provider: "WorkBuddy",
+        user: "User",
+        plan: "Free",
+        balance: 9,
+        readAt: "new",
+        windows: [{ name: "Credits", remaining: 9, limit: 10 }],
+      },
+      { provider: "workbuddy", user: "second", plan: "Pro", at: "second-at" },
+      null,
+      { provider: "workbuddy", user: "cached", quota: { plan: "nested" } },
+      { provider: "", user: "missing-provider", plan: "Free" },
+      { provider: "workbuddy", user: "", plan: "Free" },
+      { provider: "workbuddy", user: "failed", error: "token=secret", plan: "Free" },
+      { provider: "workbuddy", user: "empty", windows: [] },
+    ])
+
+    expect(merged.get("workbuddy/user")).toMatchObject({
+      at: "new",
+      quota: {
+        plan: "Free",
+        balance: "9",
+        windows: [{ name: "Credits", remaining: 9, limit: 10 }],
+        readAt: "new",
+      },
+    })
+    expect(merged.get("workbuddy/second")).toMatchObject({
+      at: "second-at",
+      quota: { plan: "Pro", balance: "", windows: [] },
+    })
+    expect(merged.size).toBe(2)
+  })
+
+  test("matches refreshed WorkBuddy cards to both signed-in accounts", async () => {
+    const tmp = await dir()
+    await writeFile(tmp.path("plugin-providers.json"), JSON.stringify([{
+      id: "workbuddy",
+      name: "WorkBuddy",
+      accounts: [
+        { key: "one", accountId: "one@example.com" },
+        { key: "two", accountId: "two@example.com" },
+      ],
+    }]), "utf8")
+
+    const inventory = await readInventory({
+      configHome: tmp.dir,
+      quotaCards: [
+        {
+          provider: "workbuddy",
+          user: "one@example.com",
+          plan: "Free",
+          windows: [{ name: "Credits", remaining: 1299.37, limit: 3620 }],
+          readAt: "2026-11-01T10:00:00Z",
+        },
+        {
+          provider: "workbuddy",
+          user: "two@example.com",
+          plan: "Free",
+          windows: [{ name: "Credits", remaining: 941.01, limit: 2400 }],
+          readAt: "2026-11-01T10:01:00Z",
+        },
+      ],
+    })
+
+    expect(inventory.providers[0].accounts.map((account) => ({
+      label: account.label,
+      plan: account.quota?.plan,
+      remaining: account.quota?.windows[0]?.remaining,
+      readAt: account.quota?.readAt,
+    }))).toEqual([
+      {
+        label: "on***@example.com",
+        plan: "Free",
+        remaining: 1299.37,
+        readAt: "2026-11-01T10:00:00Z",
+      },
+      {
+        label: "tw***@example.com",
+        plan: "Free",
+        remaining: 941.01,
+        readAt: "2026-11-01T10:01:00Z",
+      },
+    ])
+  })
+})
+
 describe("inventory snapshots", () => {
   test("merges providers, quotas, check-ins, histories, and built-in accounts", async () => {
     const tmp = await dir()
