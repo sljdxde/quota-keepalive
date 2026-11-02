@@ -134,4 +134,14 @@ describe("page status labels", () => {
       expect(status.visibleLogEvent(event)).toBe(false)
     }
   })
+
+  test("keeps runs with outcomes and hides skipped-only runs", () => {
+    expect(status.logHasResult({ status: "success" })).toBe(true)
+    expect(status.logHasResult({ status: "failed" })).toBe(true)
+    expect(status.logHasResult({ status: "skipped" })).toBe(false)
+    expect(status.logHasResult({ status: "skipped", successes: 1 })).toBe(true)
+    expect(status.logHasResult({ status: "skipped", failures: "1" })).toBe(true)
+    expect(status.logHasResult({ status: "skipped", successes: 0, failures: 0 })).toBe(false)
+    expect(status.logHasResult(null)).toBe(false)
+  })
 })

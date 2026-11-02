@@ -65,7 +65,10 @@ hook. This plugin only coordinates those capabilities and presents the results.
 - Show today's result, a five-day account history, run details, and quota trends.
 - Label quota rows explicitly as remaining versus total, show used amounts and
   percentages separately, and keep vendor-only displays uninterpreted.
-- Keep refresh-only events out of the check-in/keepalive run list.
+- Keep refresh-only events out of the check-in/keepalive run list. By default,
+  the run list shows only successful and failed runs with real outcomes; skipped-only
+  runs stay collapsed behind **View all logs for today**, including every run from
+  the current Beijing day.
 - Refresh quotas every minute for enabled providers, and support per-provider or
   refresh-all actions.
 - Keep only hashed account tags, sanitized errors, model names, and status fields in
@@ -141,6 +144,8 @@ enable automatic keepalive by default.
   Manual keepalive asks for confirmation and still requires the provider to be enabled.
 - **Refresh quota**: refresh all enabled providers; each provider row also has a
   provider-only refresh button.
+- **View all logs for today**: switch the run list to every task from the current
+  Beijing day, including skipped-only runs that are hidden by default.
 - **Save schedule**: set the shared interval and action type.
 - **Real activity / Short probe**: real activity fills the configured input and
   can leave an activity record, but consumes credits. A short probe is cheaper
@@ -250,6 +255,18 @@ node ./bin/daily-keepalive-log.js --json
 Agents can use the `quota-keepalive_logs` tool. Logs contain stable hashes of account
 identifiers, provider IDs, status, model names, and sanitized errors. They never
 contain tokens, full account identifiers, enterprise identifiers, or model replies.
+
+### Storage and automatic cleanup
+
+- JSONL logs keep only the current file and one rotated `.1` copy. The next rotation
+  replaces and removes the older copy automatically. At the default 2 MiB limit, the
+  two files normally stay under about 4 MiB.
+- The state file keeps only the latest 32 days of account records; older entries are
+  pruned when state is written.
+- Page snapshots `data.js` and `data.json` are overwritten, not appended. The
+  all-logs-for-today view is derived from the current snapshot and does not create
+  additional history files.
+- Magpie-owned files such as `quota-history.json` are read-only to this plugin.
 
 ## Security
 

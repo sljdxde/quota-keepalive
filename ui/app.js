@@ -61,6 +61,7 @@
   const providerOpen = new Map()
   const expandedHistories = new Set()
   const expandedLogs = new Set()
+  let expandedDayLogs = false
   let modelPreferences = {}
   let providerPreferences = {}
   let accountPreferences = {}
@@ -185,6 +186,11 @@
   const statusApi = window.QuotaKeepaliveStatus || {}
   const visibleLogEvent = statusApi.visibleLogEvent ||
     ((event) => new Set(["checkin", "keepalive", "all", "schedule"]).has(String(event || "")))
+  const logHasResult = statusApi.logHasResult || ((group) => {
+    const status = String(group?.status || "")
+    return status === "success" || status === "failed" ||
+      number(group?.successes) > 0 || number(group?.failures) > 0
+  })
   const activityState = statusApi.activity || ((point, task) => {
     const name = task === "checkin" ? "签到" : "保活"
     if (!point) return { tone: "muted", label: `${name}待执行`, short: "待执行", message: "", title: "" }
@@ -914,6 +920,7 @@
     record?.account,
     record?.run,
   ].map((part) => String(part || "")).join("|")
+  const runGroupKey = (group) => String(group?.id || `${group?.at}|${group?.event}`)
 
   function formatDetailTime(value) {
     const at = Date.parse(value)
@@ -1011,7 +1018,7 @@
   }
 
   function runGroupRecord(group) {
-    const key = `run:${group?.id || `${group?.at}|${group?.event}`}`
+    const key = `run:${runGroupKey(group)}`
     const providers = (Array.isArray(group?.providers) ? group.providers : [])
       .map((id) => providerFor(id)?.name || id)
       .filter(Boolean)
@@ -1147,31 +1154,71 @@
     </details>`
   }
 
+  const recentRunGroups = (value) => (Array.isArray(value) ? value : [])
+    .filter((group) => visibleLogEvent(group?.event))
+    .slice()
+    .sort((left, right) => {
+      const leftAt = Date.parse(left?.at)
+      const rightAt = Date.parse(right?.at)
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt)) return rightAt - leftAt
+      return String(right?.at || "").localeCompare(String(left?.at || ""))
+    })
+
   function renderLogs(data) {
-    const groups = (Array.isArray(data?.runHistory) ? data.runHistory : [])
-      .filter((group) => visibleLogEvent(group?.event))
-      .slice()
-      .sort((left, right) => {
-        const leftAt = Date.parse(left?.at)
-        const rightAt = Date.parse(right?.at)
-        if (Number.isFinite(leftAt) && Number.isFinite(rightAt)) return rightAt - leftAt
-        return String(right?.at || "").localeCompare(String(left?.at || ""))
-      })
-      .slice(0, 12)
-    if (groups.length) {
-      $("logs").innerHTML = groups.map(runGroupRecord).join("")
-      $("log-count").textContent = `最近 ${groups.length} 次任务`
+    const groups = recentRunGroups(data?.runHistory)
+    const today = String(data?.today || "")
+    const detailedRuns = new Map(groups.map((group) => [runGroupKey(group), group]))
+    const todayRuns = recentRunGroups(
+      Array.isArray(data?.todayRuns) && data.todayRuns.length
+        ? data.todayRuns
+        : groups.filter((group) => group?.day === today),
+    ).map((group) => {
+      const detailed = detailedRuns.get(runGroupKey(group))
+      return detailed?.children?.length ? { ...group, children: detailed.children } : group
+    })
+    const results = groups.filter(logHasResult).slice(0, 12)
+    const showingToday = expandedDayLogs && todayRuns.length > 0
+    const shown = showingToday ? todayRuns : results
+    const resultKeys = new Set(results.map(runGroupKey))
+    const hiddenToday = todayRuns.filter((group) => !resultKeys.has(runGroupKey(group))).length
+    const toggle = $("logs-all-toggle")
+    toggle.hidden = !(showingToday || hiddenToday > 0)
+    toggle.textContent = showingToday
+      ? "收起当天全部日志"
+      : `查看当天全部日志${todayRuns.length ? ` (${todayRuns.length})` : ""}`
+    toggle.setAttribute("aria-expanded", showingToday ? "true" : "false")
+    toggle.title = showingToday
+      ? "回到最近的成功和失败记录"
+      : hiddenToday > 0 ? `当天还有 ${hiddenToday} 条日志未在默认列表中显示` : ""
+
+    if (shown.length) {
+      $("logs").innerHTML = shown.map(runGroupRecord).join("")
+      $("log-count").textContent = showingToday
+        ? `当天 ${shown.length} 条日志`
+        : `最近 ${shown.length} 条成功/失败`
       return
     }
+
+    if (groups.length) {
+      $("logs").innerHTML = `<div class="empty compact"><b>${
+        todayRuns.length ? "当天任务均已跳过" : "还没有成功或失败记录"
+      }</b><span>${
+        todayRuns.length ? "可点击“查看当天全部日志”检查跳过原因。" : "签到或保活完成后，这里会显示每次结果。"
+      }</span></div>`
+      $("log-count").textContent = "暂无成功或失败"
+      return
+    }
+
     const allRecords = Array.isArray(data?.records) ? data.records : []
     const records = allRecords
       .filter((record) => visibleLogEvent(record?.event))
+      .filter((record) => ["success", "failed"].includes(String(record?.status || "")))
       .slice(-12)
       .reverse()
     $("logs").innerHTML = records.length
       ? records.map((record) => logRecord(record, allRecords)).join("")
-      : `<div class="empty compact"><b>还没有执行记录</b><span>签到完成后，这里会显示每次结果。</span></div>`
-    $("log-count").textContent = records.length ? `最近 ${records.length} 条` : "暂无记录"
+      : `<div class="empty compact"><b>还没有成功或失败记录</b><span>签到或保活完成后，这里会显示每次结果。</span></div>`
+    $("log-count").textContent = records.length ? `最近 ${records.length} 条成功/失败` : "暂无成功或失败"
   }
 
   function renderCommand(data) {
@@ -1489,6 +1536,11 @@
       if (details.open) expandedLogs.add(key)
       else expandedLogs.delete(key)
     }, true)
+    $("logs-all-toggle").addEventListener("click", () => {
+      if (!snapshot) return
+      expandedDayLogs = !expandedDayLogs
+      renderLogs(snapshot)
+    })
     $("detect").addEventListener("click", () => queue("detect"))
     $("checkin").addEventListener("click", () => queue("checkin"))
     $("keepalive")?.addEventListener("click", () => openConfirm())

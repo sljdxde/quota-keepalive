@@ -16,6 +16,11 @@
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
   }
+  const logHasResult = (group) => {
+    const status = String(group?.status || "")
+    return status === "success" || status === "failed" ||
+      finite(group?.successes) > 0 || finite(group?.failures) > 0
+  }
   const formatNumber = (value) => {
     const parsed = finite(value)
     return Math.abs(parsed - Math.round(parsed)) < 0.001
@@ -143,5 +148,6 @@
     chip,
     taskName,
     visibleLogEvent,
+    logHasResult,
   })
 })(globalThis)

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { QuotaKeepalivePlugin } from "../index.js"
@@ -508,6 +508,10 @@ describe.serial("Logs, scheduling, and page", () => {
     }
     expect((await stat(`${logPath}.1`)).mode & 0o777).toBe(0o600)
     expect(await readFile(logPath, "utf8")).toContain("run-5")
+    expect((await readdir(dir)).filter((name) => name.startsWith("daily.log.jsonl")).sort()).toEqual([
+      "daily.log.jsonl",
+      "daily.log.jsonl.1",
+    ])
   })
 
   test("runner records all provider check-in rows from Magpie", async () => {
@@ -670,12 +674,18 @@ describe.serial("Logs, scheduling, and page", () => {
       failures: 0,
     })
     expect(snapshot.runHistory[0].children).toHaveLength(1)
+    expect(snapshot.todayRuns[0]).toMatchObject({
+      id: run,
+      event: "checkin",
+      status: "success",
+    })
+    expect(snapshot.todayRuns[0].children).toBeUndefined()
   })
 
   test("the page exposes detection, check-in, scheduling, and logs while keepalive is paused", async () => {
     const root = new URL("..", import.meta.url)
     const html = await readFile(new URL("ui/index.html", root), "utf8")
-    for (const id of ["detect", "checkin", "schedule-save", "logs"]) {
+    for (const id of ["detect", "checkin", "schedule-save", "logs", "logs-all-toggle"]) {
       expect(html).toContain(`id="${id}"`)
     }
     expect(html).not.toContain('id="keepalive"')
@@ -702,6 +712,8 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(app).toContain("accountNotes")
     expect(app).toContain("provider-states")
     expect(app).toContain("QuotaKeepaliveStatus")
+    expect(app).toContain("logHasResult")
+    expect(app).toContain("查看当天全部日志")
     expect(app).toContain("task-switch")
     expect(app).toContain("data-task-run")
     expect(app).toContain("pendingAccount")

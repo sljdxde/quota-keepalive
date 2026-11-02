@@ -10,6 +10,7 @@ import { readCommand } from "./commands.js"
 const MAX_READ_RECORDS = 2_500
 const MAX_SNAPSHOT_RECORDS = 120
 const MAX_RUN_GROUPS = 16
+const MAX_TODAY_RUNS = 400
 const ACCOUNT = /^acct-[a-f0-9]{12}$/
 const SNAPSHOT_VARIABLE = "DailyKeepaliveSnapshot"
 const SUMMARY_PROVIDERS = new Set(["daily-keepalive", "quota-keepalive"])
@@ -151,7 +152,7 @@ function orphanKeepaliveGroups(source, consumed) {
   return groups
 }
 
-export function buildRunHistory(records) {
+function groupRunHistory(records) {
   const source = Array.isArray(records) ? records : []
   const anchors = source
     .filter((record) =>
@@ -206,7 +207,22 @@ export function buildRunHistory(records) {
   groups.push(...orphanKeepaliveGroups(source, consumed))
   return groups
     .sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0))
-    .slice(0, MAX_RUN_GROUPS)
+}
+
+function publicRunGroup(group) {
+  const { children, ...summary } = group
+  return summary
+}
+
+export function buildRunHistory(records) {
+  return groupRunHistory(records).slice(0, MAX_RUN_GROUPS)
+}
+
+export function buildTodayRunHistory(records, day = beijingDay()) {
+  return groupRunHistory(records)
+    .filter((group) => group.day === day)
+    .slice(0, MAX_TODAY_RUNS)
+    .map(publicRunGroup)
 }
 
 export async function readPreviousSnapshot(snapshotPath) {
@@ -309,11 +325,12 @@ export async function writeDailySnapshot(options = {}) {
     inventory = carryForwardQuotas(inventory, await readPreviousSnapshot(snapshotPath))
   }
   const command = commandPath ? publicCommand(await readCommand(commandPath)) : null
+  const today = beijingDay()
   const payload = {
-    version: 4,
+    version: 5,
     generatedAt: new Date().toISOString(),
     timezone: "Asia/Shanghai",
-    today: beijingDay(),
+    today,
     logEnabled: true,
     logFile: "daily-keepalive.log.jsonl",
     rotated: result.rotated,
@@ -324,6 +341,7 @@ export async function writeDailySnapshot(options = {}) {
     accounts: inventory.accounts,
     command,
     runHistory: buildRunHistory(records),
+    todayRuns: buildTodayRunHistory(records, today),
   }
   await writeAtomic(
     resolve(snapshotPath),

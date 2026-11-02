@@ -1187,6 +1187,9 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   .schedule-controls { justify-content: flex-start; }
   .section { padding: 14px; }
   .section-tools { flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
+  .logs-section .section-head { flex-wrap: wrap; align-items: flex-start; }
+  .logs-section .section-head > div:first-child { flex: 1 1 100%; }
+  .logs-section .section-tools { width: 100%; justify-content: space-between; }
   .provider-tools { align-items: stretch; }
   .model-picker { width: 100%; }
   .account-quota { margin-left: 0; }

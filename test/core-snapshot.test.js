@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
   buildRunHistory,
+  buildTodayRunHistory,
   carryForwardQuotas,
   defaultSnapshotPath,
   publicCommand,
@@ -255,6 +256,51 @@ describe("run history and quota carry-forward", () => {
     expect(groups[2].children).toHaveLength(3)
   })
 
+  test("lists every run for one day including skipped runs without child details", () => {
+    const records = [
+      {
+        provider: "quota-keepalive",
+        event: "schedule",
+        status: "success",
+        ts: "2026-10-30T01:00:00.000Z",
+        day: "2026-10-30",
+        run: "success",
+        message: "done",
+      },
+      {
+        provider: "p",
+        event: "checkin",
+        status: "success",
+        ts: "2026-10-30T00:59:00.000Z",
+        day: "2026-10-30",
+        run: "success",
+      },
+      {
+        provider: "quota-keepalive",
+        event: "schedule",
+        status: "skipped",
+        ts: "2026-10-30T02:00:00.000Z",
+        day: "2026-10-30",
+        run: "skipped",
+        message: "already done",
+      },
+      {
+        provider: "quota-keepalive",
+        event: "schedule",
+        status: "failed",
+        ts: "2026-10-29T02:00:00.000Z",
+        day: "2026-10-29",
+        run: "older",
+      },
+    ]
+    const runs = buildTodayRunHistory(records, "2026-10-30")
+    expect(runs.map((run) => run.id)).toEqual(["skipped", "success"])
+    expect(runs[0]).toMatchObject({ status: "skipped", message: "already done" })
+    expect(runs[1]).toMatchObject({ status: "success", successes: 1 })
+    expect(runs.every((run) => !("children" in run))).toBe(true)
+    expect(buildTodayRunHistory(records, "2026-10-28")).toEqual([])
+  })
+
   test("carries only missing quotas from a previous snapshot", () => {
     const inventory = {
       providers: [{
@@ -351,7 +397,7 @@ describe("snapshot writing", () => {
       writeCompanion: true,
     })
     expect(payload).toMatchObject({
-      version: 4,
+      version: 5,
       timezone: "Asia/Shanghai",
       logEnabled: true,
       rotated: false,
@@ -360,9 +406,11 @@ describe("snapshot writing", () => {
     expect(payload.command).toMatchObject({ id: "detect", status: "running" })
     expect(payload.records.map((record) => record.event)).toEqual(["checkin"])
     expect(payload.runHistory[0]).toMatchObject({ event: "checkin", id: "checkin" })
+    expect(Array.isArray(payload.todayRuns)).toBe(true)
     const companion = JSON.parse(await readFile(snapshotPath.replace(/\.js$/, ".json"), "utf8"))
-    expect(companion.version).toBe(4)
+    expect(companion.version).toBe(5)
     expect(await readFile(snapshotPath, "utf8")).toStartWith("window.DailyKeepaliveSnapshot =")
+    expect((await readdir(ui)).sort()).toEqual(["data.js", "data.json"])
   })
 
   test("writes atomically and reports write failures", async () => {

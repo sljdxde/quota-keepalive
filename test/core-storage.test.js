@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { chmod, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
   claimCommand,
@@ -324,9 +324,20 @@ describe("structured logs", () => {
 
     const rotated = tmp.path("rotate.jsonl")
     await writeFile(rotated, "x".repeat(100), "utf8")
+    await writeFile(`${rotated}.1`, "stale", "utf8")
     await rotateIfNeeded(rotated, 95, 10)
     expect((await stat(`${rotated}.1`)).isFile()).toBe(true)
     expect((await stat(`${rotated}.1`)).mode & 0o777).toBe(0o600)
+    expect(await readFile(`${rotated}.1`, "utf8")).toBe("x".repeat(100))
+    await appendDailyLog({
+      logPath: rotated,
+      logMaxBytes: 95,
+      entry: { ts: "2026-10-30T00:00:00.000Z", event: "checkin", status: "success" },
+    })
+    expect((await readdir(tmp.dir)).filter((name) => name.startsWith("rotate.jsonl")).sort()).toEqual([
+      "rotate.jsonl",
+      "rotate.jsonl.1",
+    ])
   })
 
   test("covers filesystem failure handling without touching real logs", async () => {
