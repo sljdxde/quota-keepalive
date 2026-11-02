@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+var beginRemoveSourceTx = func(
+	db *sql.DB, ctx context.Context, opts *sql.TxOptions,
+) (*sql.Tx, error) {
+	return db.BeginTx(ctx, opts)
+}
+
 // ErrNoHealthySource 无可用健康来源。
 var ErrNoHealthySource = errors.New("无可用健康来源，请重新登录或导入有效登录态后再启用")
 
@@ -46,18 +52,6 @@ func (s *Service) Discover(ctx context.Context, target string, accounts []Discov
 
 	for _, a := range accounts {
 		ts := nowTS()
-		_, err := tx.ExecContext(ctx, `
-INSERT INTO accounts (id, target, display_name, masked_identity, enabled, created_at, updated_at)
-VALUES (?, ?, ?, ?, 0, ?, ?)
-ON CONFLICT(target, id) DO UPDATE SET
-  display_name = excluded.display_name,
-  masked_identity = excluded.masked_identity,
-  updated_at = excluded.updated_at`,
-			a.ID, target, a.DisplayName, a.MaskedIdentity, ts, ts)
-		if err != nil {
-			return err
-		}
-
 		kind := string(a.SourceKind)
 		if kind == "" {
 			kind = string(KindManaged)
@@ -70,13 +64,34 @@ ON CONFLICT(target, id) DO UPDATE SET
 		if health == "" {
 			health = HealthHealthy
 		}
+		// 首次发现且来源健康时自动启用；已有账号的启停状态保持不变。
+		enabled := 0
+		if health == HealthHealthy {
+			enabled = 1
+		}
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO accounts (id, target, display_name, masked_identity, enabled, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(target, id) DO UPDATE SET
+  display_name = excluded.display_name,
+  masked_identity = excluded.masked_identity,
+  updated_at = excluded.updated_at`,
+			a.ID, target, a.DisplayName, a.MaskedIdentity, enabled, ts, ts)
+		if err != nil {
+			return err
+		}
+
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO sources (id, target, account_id, kind, read_only, health, pinned, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
 ON CONFLICT(target, account_id, id) DO UPDATE SET
   kind = excluded.kind,
   read_only = excluded.read_only,
-  health = excluded.health,
+  health = CASE
+    WHEN sources.health = 'reauth_required' AND excluded.health = 'healthy'
+    THEN sources.health
+    ELSE excluded.health
+  END,
   updated_at = excluded.updated_at`,
 			a.SourceID, target, a.ID, kind, readOnly, health, ts, ts)
 		if err != nil {
@@ -136,20 +151,66 @@ func (s *Service) SetEnabled(ctx context.Context, target, accountID string, enab
 	if enabled {
 		e = 1
 	}
-	result, err := s.db.ExecContext(ctx,
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE accounts SET enabled = ?, updated_at = ? WHERE target = ? AND id = ?`,
 		e, nowTS(), target, accountID)
-	if err != nil {
+	return err
+}
+
+// SetTaskEnabled stores whether automation should include one operation for an
+// account. Manual execution remains available regardless of this preference.
+func (s *Service) SetTaskEnabled(
+	ctx context.Context,
+	target, accountID, operation string,
+	enabled bool,
+) error {
+	if operation == "" {
+		return errors.New("操作类型不能为空")
+	}
+	if _, err := s.Get(ctx, target, accountID); err != nil {
 		return err
 	}
-	n, err := result.RowsAffected()
+	e := 0
+	if enabled {
+		e = 1
+	}
+	ts := nowTS()
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO account_task_preferences
+  (target, account_id, operation, enabled, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(target, account_id, operation) DO UPDATE SET
+  enabled = excluded.enabled,
+  updated_at = excluded.updated_at`,
+		target, accountID, operation, e, ts, ts)
+	return err
+}
+
+// TaskPreferences returns explicit per-operation preferences. Missing keys are
+// enabled by definition; callers should merge this map with supported tasks.
+func (s *Service) TaskPreferences(
+	ctx context.Context,
+	target, accountID string,
+) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT operation, enabled
+FROM account_task_preferences
+WHERE target = ? AND account_id = ?`, target, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if n == 0 {
-		return sql.ErrNoRows
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var operation string
+		var enabled int
+		if err := rows.Scan(&operation, &enabled); err != nil {
+			return nil, err
+		}
+		out[operation] = enabled == 1
 	}
-	return nil
+	return out, rows.Err()
 }
 
 // Delete 删除 QKA 映射、来源与受管凭据，目标应用数据保持不变。
@@ -171,6 +232,49 @@ func (s *Service) Delete(ctx context.Context, target, accountID string) error {
 	_, err = s.db.ExecContext(ctx,
 		`DELETE FROM accounts WHERE target = ? AND id = ?`, target, accountID)
 	return err
+}
+
+// RemoveSource removes one QKA-owned source and cleans its managed credential.
+// The account projection remains when another source still references it.
+func (s *Service) RemoveSource(ctx context.Context, target, accountID, sourceID string) error {
+	var kind SourceKind
+	err := s.db.QueryRowContext(ctx, `
+SELECT kind FROM sources
+WHERE target = ? AND account_id = ? AND id = ?`,
+		target, accountID, sourceID).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if kind == KindManaged && s.credentials != nil {
+		if err := s.credentials.DeleteManaged(ctx, target, accountID, sourceID); err != nil {
+			return fmt.Errorf("清理受管凭据失败: %w", err)
+		}
+	}
+
+	tx, err := beginRemoveSourceTx(s.db, ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM sources
+WHERE target = ? AND account_id = ? AND id = ?`,
+		target, accountID, sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM accounts
+WHERE target = ? AND id = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM sources WHERE target = ? AND account_id = ?
+  )`,
+		target, accountID, target, accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // MarkSourceFailure 来源失败：导入来源停用，受管来源转需重登。

@@ -7,8 +7,9 @@ import (
 
 // Response 是成功路径的稳定输出结构。
 type Response struct {
-	Status string `json:"status"`
-	Data   any    `json:"data,omitempty"`
+	Status   string `json:"status"`
+	Data     any    `json:"data,omitempty"`
+	ExitCode int    `json:"-"`
 }
 
 // ErrorInfo 是失败路径的稳定错误结构。

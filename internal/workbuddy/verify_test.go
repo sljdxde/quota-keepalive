@@ -77,7 +77,7 @@ func TestVerifyReadOnlyCreatesMaskedManagedAccountAndDeletesPendingCredential(t 
 
 	var mu sync.Mutex
 	var paths []string
-	var accountDomain, balanceDomain string
+	var balanceDomain string
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -85,16 +85,6 @@ func TestVerifyReadOnlyCreatesMaskedManagedAccountAndDeletesPendingCredential(t 
 		mu.Unlock()
 
 		switch r.URL.Path {
-		case "/v2/plugin/accounts":
-			if got := r.Header.Get("Authorization"); got != "Bearer "+accessToken {
-				t.Errorf("accounts Authorization 错误: %q", got)
-			}
-			accountDomain = r.Header.Get("X-Domain")
-			writeEnvelope(t, w, map[string]any{
-				"accounts": []map[string]any{{
-					"uid": uid, "enterpriseId": enterprise, "type": "enterprise",
-				}},
-			})
 		case "/billing/meter/get-user-resource-summary":
 			balanceDomain = r.Header.Get("X-Domain")
 			if got := r.Header.Get("Authorization"); got != "Bearer "+accessToken {
@@ -164,11 +154,11 @@ func TestVerifyReadOnlyCreatesMaskedManagedAccountAndDeletesPendingCredential(t 
 	if store.has(credential.SessionID) {
 		t.Error("验证成功后应删除待验证凭据")
 	}
-	if accountDomain != domain || balanceDomain != domain {
-		t.Errorf("accounts 与 balance 必须使用同一 token domain，实际 %q / %q", accountDomain, balanceDomain)
+	if balanceDomain != domain {
+		t.Errorf("balance 必须使用 token domain，实际 %q", balanceDomain)
 	}
-	if len(paths) != 2 {
-		t.Errorf("验证阶段应只有 accounts 与 balance 两个请求，实际 %v", paths)
+	if len(paths) != 1 {
+		t.Errorf("登录身份已完整时验证阶段应只请求 balance，实际 %v", paths)
 	}
 }
 
@@ -182,16 +172,14 @@ func TestVerifyFailureDoesNotReachSink(t *testing.T) {
 	cases := []struct {
 		name         string
 		status       int
-		accounts     []map[string]any
 		closeServer  bool
 		wantStatus   LoginStatus
 		keepPending  bool
 		responseCode int
 	}{
 		{
-			name:        "身份不匹配",
+			name:        "身份缺失",
 			status:      http.StatusOK,
-			accounts:    []map[string]any{{"uid": "another-user"}},
 			wantStatus:  LoginFailed,
 			keepPending: false,
 		},
@@ -224,7 +212,7 @@ func TestVerifyFailureDoesNotReachSink(t *testing.T) {
 					http.Error(w, "forbidden checkin", http.StatusInternalServerError)
 					return
 				}
-				if r.URL.Path != "/v2/plugin/accounts" {
+				if r.URL.Path != "/billing/meter/get-user-resource-summary" {
 					http.NotFound(w, r)
 					return
 				}
@@ -232,7 +220,7 @@ func TestVerifyFailureDoesNotReachSink(t *testing.T) {
 					w.WriteHeader(tc.status)
 					return
 				}
-				writeEnvelope(t, w, map[string]any{"accounts": tc.accounts})
+				writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
 			}))
 
 			store := newVerificationStore()
@@ -252,6 +240,9 @@ func TestVerifyFailureDoesNotReachSink(t *testing.T) {
 				defer target.Close()
 			}
 
+			if tc.name == "身份缺失" {
+				credential.UID = ""
+			}
 			outcome := svc.Verify(context.Background(), credential)
 			if outcome.Status != tc.wantStatus {
 				t.Fatalf("失败状态错误: %+v", outcome)
@@ -305,10 +296,6 @@ func TestVerifyNormalizesDomainAndUsesBaseHostAsFallback(t *testing.T) {
 			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				domains = append(domains, r.Header.Get("X-Domain"))
 				switch r.URL.Path {
-				case "/v2/plugin/accounts":
-					writeEnvelope(t, w, map[string]any{
-						"accounts": []map[string]any{{"uid": "domain-uid"}},
-					})
 				case "/billing/meter/get-user-resource-summary":
 					writeEnvelope(t, w, map[string]any{"IsPaidUser": false})
 				default:
@@ -320,6 +307,7 @@ func TestVerifyNormalizesDomainAndUsesBaseHostAsFallback(t *testing.T) {
 			credential := PendingCredential{
 				Target: "workbuddy-cn", SessionID: "domain-session", Protocol: ProtocolBaseline,
 				AccessToken: "domain-access", UID: "domain-uid", Domain: tc.domain,
+				IdentityType: "personal",
 			}
 			store := newVerificationStore()
 			raw, _ := json.Marshal(credential)
@@ -332,10 +320,127 @@ func TestVerifyNormalizesDomainAndUsesBaseHostAsFallback(t *testing.T) {
 			}
 			parsed, _ := url.Parse(target.URL)
 			want := tc.wantDomain(parsed)
-			if len(domains) != 2 || domains[0] != want || domains[1] != want {
-				t.Errorf("domain 应规范化为 %q 且两次一致，实际 %v", want, domains)
+			if len(domains) != 1 || domains[0] != want {
+				t.Errorf("domain 应规范化为 %q，实际 %v", want, domains)
 			}
 		})
+	}
+}
+
+func TestVerifyPersonalIdentityDoesNotRequireAccountListMatch(t *testing.T) {
+	const uid = "personal-uid"
+	var paths []string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/billing/meter/get-user-resource-summary":
+			writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+		default:
+			t.Errorf("个人账号验证不应要求账号列表匹配，出现请求: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	credential := PendingCredential{
+		Target: "workbuddy-cn", SessionID: "personal-session", Protocol: ProtocolBaseline,
+		AccessToken: "personal-access", UID: uid, Domain: "copilot.tencent.com",
+		IdentityType: "personal",
+	}
+	store := newVerificationStore()
+	raw, _ := json.Marshal(credential)
+	_ = store.Save(context.Background(), credential.SessionID, raw)
+	sink := &verificationSink{}
+	svc := NewVerificationService(VerificationConfig{
+		BaseURL: target.URL, PendingStore: store, Sink: sink,
+	})
+
+	if outcome := svc.Verify(context.Background(), credential); outcome.Status != LoginVerified {
+		t.Fatalf("个人账号只读验证应通过，实际 %+v", outcome)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("个人账号验证通过后应保存一次，实际 %d", sink.calls)
+	}
+	if len(paths) != 1 || paths[0] != "/billing/meter/get-user-resource-summary" {
+		t.Errorf("个人账号验证应只调用余额只读接口，实际 %v", paths)
+	}
+}
+
+func TestVerifyEnterpriseIdentityUsesLoginEnterpriseWithoutAccountListMatch(t *testing.T) {
+	const enterprise = "login-enterprise"
+	var balanceEnterprise string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/billing/meter/get-user-resource-summary":
+			balanceEnterprise = r.Header.Get("X-Enterprise-Id")
+			writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+		default:
+			t.Errorf("登录身份已带企业 ID 时不应要求账号列表匹配，出现请求: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	credential := PendingCredential{
+		Target: "workbuddy-cn", SessionID: "enterprise-login-session", Protocol: ProtocolBaseline,
+		AccessToken: "enterprise-access", UID: "enterprise-uid",
+		EnterpriseID: enterprise, Domain: "copilot.tencent.com",
+		IdentityType: "enterprise",
+	}
+	store := newVerificationStore()
+	raw, _ := json.Marshal(credential)
+	_ = store.Save(context.Background(), credential.SessionID, raw)
+	sink := &verificationSink{}
+	svc := NewVerificationService(VerificationConfig{
+		BaseURL: target.URL, PendingStore: store, Sink: sink,
+	})
+
+	if outcome := svc.Verify(context.Background(), credential); outcome.Status != LoginVerified {
+		t.Fatalf("企业账号只读验证应通过，实际 %+v", outcome)
+	}
+	if balanceEnterprise != enterprise {
+		t.Errorf("余额请求应携带登录身份中的企业 ID，实际 %q", balanceEnterprise)
+	}
+}
+
+func TestVerifyEnterpriseLookupFailureDoesNotOverrideBalanceSuccess(t *testing.T) {
+	var paths []string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/v2/plugin/accounts":
+			http.Error(w, "temporary account list failure", http.StatusInternalServerError)
+		case "/billing/meter/get-user-resource-summary":
+			writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer target.Close()
+
+	credential := PendingCredential{
+		Target: "workbuddy-cn", SessionID: "enterprise-lookup-failure", Protocol: ProtocolBaseline,
+		AccessToken: "enterprise-access", UID: "enterprise-uid",
+		Domain: "copilot.tencent.com", IdentityType: "enterprise",
+	}
+	store := newVerificationStore()
+	raw, _ := json.Marshal(credential)
+	_ = store.Save(context.Background(), credential.SessionID, raw)
+	sink := &verificationSink{}
+	svc := NewVerificationService(VerificationConfig{
+		BaseURL: target.URL, PendingStore: store, Sink: sink,
+	})
+
+	if outcome := svc.Verify(context.Background(), credential); outcome.Status != LoginVerified {
+		t.Fatalf("企业 ID 推断失败不应覆盖余额只读成功，实际 %+v", outcome)
+	}
+	if sink.calls != 1 {
+		t.Fatalf("余额验证成功应保存一次，实际 %d", sink.calls)
+	}
+	if len(paths) != 2 ||
+		paths[0] != "/v2/plugin/accounts" ||
+		paths[1] != "/billing/meter/get-user-resource-summary" {
+		t.Errorf("应在推断失败后继续余额验证，实际请求 %v", paths)
 	}
 }
 

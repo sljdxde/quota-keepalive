@@ -1,5 +1,5 @@
 // Package app 是组合根（composition root）：把 store、适配器宿主、registry、
-// 引擎与各工具实现装配为可运行的 qka，并按形态（serve 等）启动。
+// 引擎与各工具实现装配为可运行的 QKA，并按形态（serve 等）启动。
 //
 // 各业务包只承载领域逻辑并用注入的依赖做单元测试；本包负责把它们真正连起来，
 // 因此也是「从真实入口端到端验证」的唯一权威装配点。
@@ -16,7 +16,9 @@ import (
 	"qka/internal/adapterhost"
 	"qka/internal/capabilities"
 	"qka/internal/engine"
+	"qka/internal/providers"
 	"qka/internal/registry"
+	"qka/internal/requestguard"
 	"qka/internal/status"
 	"qka/internal/store"
 )
@@ -29,6 +31,8 @@ type Config struct {
 	AdaptersRoot string
 	// BunPath 是运行适配器的 Bun 运行时路径。
 	BunPath string
+	// ProviderPluginsRoot 是随包的 OpenCode provider plugin 目录。
+	ProviderPluginsRoot string
 	// Version 是本体版本（initialize/serverInfo 与 doctor 上报）。
 	Version string
 	// BaseURLs 覆盖适配器目标基址（target id → baseURL），用于受控假目标/自托管。
@@ -53,15 +57,19 @@ type App struct {
 	now      func() time.Time
 	holderID string
 
-	loaded   []Loaded
-	hosts    map[string]*adapterhost.Host
-	engine   *engine.Engine
-	registry *registry.Registry
-	accounts *accounts.Service
-	status   *status.Service
+	loaded    []Loaded
+	hosts     map[string]*adapterhost.Host
+	engine    *engine.Engine
+	registry  *registry.Registry
+	accounts  *accounts.Service
+	status    *status.Service
+	providers *providers.Service
+	riskGuard *requestguard.Guard
 
 	pendingCredentials *capabilities.LoginCredentialStore
 	credentials        *capabilities.CredentialService
+	logPruneCancel     context.CancelFunc
+	logPruneDone       chan struct{}
 
 	workBuddySessions workBuddyManagedSessionCache
 }
@@ -81,11 +89,12 @@ func Build(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	a := &App{
-		cfg:      cfg,
-		store:    st,
-		now:      cfg.Now,
-		holderID: fmt.Sprintf("qka-%d", os.Getpid()),
-		hosts:    map[string]*adapterhost.Host{},
+		cfg:       cfg,
+		store:     st,
+		now:       cfg.Now,
+		holderID:  fmt.Sprintf("qka-%d", os.Getpid()),
+		hosts:     map[string]*adapterhost.Host{},
+		riskGuard: requestguard.New(cfg.Now),
 	}
 
 	if err := a.launchAdapters(ctx); err != nil {
@@ -112,6 +121,16 @@ func Build(ctx context.Context, cfg Config) (*App, error) {
 	a.registry = registry.New(st.DB(), a.now)
 	a.registry.SetAdapters(a.registryAdapters())
 	a.status = status.NewService(st.DB(), a.now, a.capabilitiesFor)
+	a.providers = providers.NewService(
+		st.DB(),
+		a.accounts,
+		a.credentials,
+		a.engine,
+		a.providerRuntimeFactory(),
+		a.now,
+	)
+	a.providers.SetRiskGuard(a.riskGuard)
+	a.startLogPruner()
 
 	return a, nil
 }
@@ -136,6 +155,10 @@ func (a *App) LoadedAdapters() []Loaded { return a.loaded }
 
 // Close 终止所有适配器子进程并关闭数据库。
 func (a *App) Close() error {
+	a.stopLogPruner()
+	if a.providers != nil {
+		_ = a.providers.Close()
+	}
 	for _, l := range a.loaded {
 		if l.Host != nil {
 			_ = l.Host.Close()

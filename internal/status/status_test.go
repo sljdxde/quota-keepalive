@@ -85,6 +85,34 @@ func TestStatusReportsToday(t *testing.T) {
 	}
 }
 
+func TestStatusReportsKnownCreditsAndBalance(t *testing.T) {
+	st, svc := setup(t)
+	seedOp(t, st, "q_1", "checkin", "signed_confirmed")
+	credits, balance := 100.0, 1500.0
+	if err := engine.New(st.DB(), fixedNow, "test").RecordUsage(
+		context.Background(),
+		engine.Key{Target: "qoder-cn", AccountID: "q_1", Operation: engine.Checkin},
+		&credits, &balance,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := svc.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var op OpStatus
+	for _, account := range view.Accounts {
+		if account.AccountID == "q_1" {
+			op = account.Operations[0]
+		}
+	}
+	if op.Credits == nil || *op.Credits != credits ||
+		op.Balance == nil || *op.Balance != balance {
+		t.Fatalf("状态应透出已知额度，实际 %+v", op)
+	}
+}
+
 func TestStatusPendingReasons(t *testing.T) {
 	st, svc := setup(t)
 	seedOp(t, st, "q_2", "checkin", "signed_provisional")
@@ -99,12 +127,12 @@ func TestStatusPendingReasons(t *testing.T) {
 
 func TestPlanValidateReportsConflictsAndCooldown(t *testing.T) {
 	st, svc := setup(t)
-	// q_1 已终态（同日已终态冲突）；q_2 保活处于冷却。
+	// q_1 已终态（同日已终态冲突）；q_2 签到失败处于冷却。
 	seedOp(t, st, "q_1", "checkin", "signed_confirmed")
 	day := engine.BeijingDay(fixedNow())
 	_, _ = st.DB().ExecContext(context.Background(),
 		`INSERT INTO daily_ops (target, account_id, operation, day_key, state, cooldown_until, updated_at)
-VALUES ('qoder-cn', 'q_2', 'keepalive', ?, 'failed_retryable', '2026-10-29T23:00:00Z', 'ts')`,
+VALUES ('qoder-cn', 'q_2', 'checkin', ?, 'failed_retryable', '2026-10-29T23:00:00Z', 'ts')`,
 		day)
 
 	plan, err := svc.PlanValidate(context.Background())
@@ -126,9 +154,9 @@ VALUES ('qoder-cn', 'q_2', 'keepalive', ?, 'failed_retryable', '2026-10-29T23:00
 		t.Error("已终态应报告同日已终态冲突")
 	}
 
-	// q_2 保活冷却中。
-	q2Keep := itemByKey["q_2/keepalive"]
-	if !q2Keep.Cooldown {
+	// q_2 签到冷却中。
+	q2Checkin := itemByKey["q_2/checkin"]
+	if !q2Checkin.Cooldown {
 		t.Error("冷却中应标记 cooldown")
 	}
 }
@@ -171,6 +199,54 @@ func TestPlanValidateOmitsDisabledAccounts(t *testing.T) {
 			t.Fatalf("停用账号不得进入执行计划: %+v", item)
 		}
 	}
+}
+
+func TestPlanValidateOmitsDisabledAccountTasks(t *testing.T) {
+	st, svc := setup(t)
+	acc := accounts.NewService(st.DB())
+	if err := acc.SetTaskEnabled(context.Background(), "qoder-cn", "q_1", "keepalive", false); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := svc.PlanValidate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range plan.Items {
+		if item.AccountID == "q_1" && item.Operation == "keepalive" {
+			t.Fatalf("停用的账号任务不得进入自动执行计划: %+v", item)
+		}
+		if item.AccountID == "q_1" && item.Operation == "checkin" {
+			return
+		}
+	}
+	t.Fatal("同一账号仍应保留启用的签到计划项")
+}
+
+func TestStatusHidesDisabledKeepaliveTask(t *testing.T) {
+	st, svc := setup(t)
+	seedOp(t, st, "q_1", "keepalive", "failed_retryable")
+	acc := accounts.NewService(st.DB())
+	if err := acc.SetTaskEnabled(context.Background(), "qoder-cn", "q_1", "keepalive", false); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := svc.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range view.Accounts {
+		if account.AccountID != "q_1" {
+			continue
+		}
+		for _, op := range account.Operations {
+			if op.Operation == "keepalive" {
+				t.Fatalf("全局停用的保活任务不得出现在状态视图: %+v", op)
+			}
+		}
+		return
+	}
+	t.Fatal("缺少 q_1 保活状态")
 }
 
 func TestPlanValidateTreatsCheckinRefusalsAsTerminal(t *testing.T) {

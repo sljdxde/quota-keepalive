@@ -3,6 +3,7 @@ module qka
 go 1.27.3
 
 require (
+	github.com/klauspost/compress v1.18.7
 	github.com/wailsapp/wails/v3 v3.0.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.61.0

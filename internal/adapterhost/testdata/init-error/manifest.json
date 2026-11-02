@@ -1,0 +1,7 @@
+{
+  "id": "init-error",
+  "name": "Init Error Adapter",
+  "version": "1.0.0",
+  "entry": "index.mjs",
+  "actions": []
+}

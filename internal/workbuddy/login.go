@@ -22,7 +22,7 @@ const (
 	// DefaultBaseURL is the official WorkBuddy CN API origin.
 	DefaultBaseURL = "https://copilot.tencent.com"
 	// ProtocolBaseline records the upstream behavior this port follows.
-	ProtocolBaseline = "@magpie-community/opencode-workbuddy-auth@0.1.47"
+	ProtocolBaseline = "@magpie-community/opencode-workbuddy-auth@0.2.0"
 
 	userAgent       = "WorkBuddy/5.9.3"
 	loginPageVer    = "2.0.0"
@@ -60,6 +60,7 @@ var (
 	errLoginRejected     = errors.New("WorkBuddy CN 未完成授权")
 	errCredentialStore   = errors.New("无法安全保存授权结果")
 	errBrowserOpen       = errors.New("无法打开 WorkBuddy CN 官方登录页")
+	randomRead           = rand.Read
 )
 
 // LoginView is the only login state exposed to the GUI or MCP layers.
@@ -281,7 +282,13 @@ func (s *LoginService) retryPendingVerification(ctx context.Context, target, ses
 	}
 	var credential PendingCredential
 	if err := json.Unmarshal(raw, &credential); err != nil || credential.SessionID != sessionID {
-		s.deletePending(sessionID)
+		if deleteErr := s.deletePending(sessionID); deleteErr != nil {
+			s.applyVerification(target, sessionID, VerificationOutcome{
+				Status:  LoginRetryable,
+				Message: "待验证登录结果无效，且临时登录凭据清理失败，请重试；未创建账号",
+			})
+			return s.Status(context.Background(), target)
+		}
 		s.applyVerification(target, sessionID, VerificationOutcome{
 			Status: LoginFailed, Message: "待验证登录结果无效，请重新登录；未创建账号",
 		})
@@ -332,7 +339,10 @@ func (s *LoginService) Cancel(ctx context.Context, target string) (LoginView, er
 	if cancel != nil {
 		cancel()
 	}
-	s.deletePending(sessionID)
+	if err := s.deletePending(sessionID); err != nil {
+		s.noteCleanupFailure(target, sessionID)
+		return s.Status(ctx, target), err
+	}
 	return s.Status(ctx, target), nil
 }
 
@@ -348,16 +358,8 @@ func (s *LoginService) poll(ctx context.Context, target, sessionID, state string
 		return
 	}
 
-	payload, err := s.pendingCredential(target, sessionID, token, account)
-	if err != nil {
-		s.fail(target, sessionID, err)
-		return
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		s.fail(target, sessionID, errCredentialStore)
-		return
-	}
+	payload := s.pendingCredential(target, sessionID, token, account)
+	raw, _ := json.Marshal(payload)
 	if s.store == nil {
 		s.fail(target, sessionID, errCredentialStore)
 		return
@@ -371,8 +373,11 @@ func (s *LoginService) poll(ctx context.Context, target, sessionID, state string
 		return
 	}
 	if err := ctx.Err(); err != nil {
-		s.deletePending(sessionID)
+		cleanupErr := s.deletePending(sessionID)
 		s.finishFromContext(target, sessionID, err)
+		if cleanupErr != nil {
+			s.noteCleanupFailure(target, sessionID)
+		}
 		return
 	}
 
@@ -380,7 +385,9 @@ func (s *LoginService) poll(ctx context.Context, target, sessionID, state string
 	current := s.sessions[target]
 	if current == nil || current.id != sessionID || current.view.Status != LoginPending {
 		s.mu.Unlock()
-		s.deletePending(sessionID)
+		if err := s.deletePending(sessionID); err != nil {
+			s.noteCleanupFailure(target, sessionID)
+		}
 		return
 	}
 	current.view.Status = LoginPendingVerification
@@ -462,16 +469,29 @@ func (s *LoginService) fail(target, sessionID string, cause error) {
 		sess.cancel()
 	}
 	s.mu.Unlock()
-	s.deletePending(sessionID)
+	if err := s.deletePending(sessionID); err != nil {
+		s.noteCleanupFailure(target, sessionID)
+	}
 }
 
-func (s *LoginService) deletePending(sessionID string) {
+func (s *LoginService) deletePending(sessionID string) error {
 	if s.store == nil {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = s.store.Delete(ctx, sessionID)
+	return ignoreMissingPendingCredential(s.store.Delete(ctx, sessionID))
+}
+
+func (s *LoginService) noteCleanupFailure(target, sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess := s.sessions[target]
+	if sess == nil || sess.id != sessionID {
+		return
+	}
+	sess.view.Message = strings.TrimSpace(sess.view.Message) +
+		"；临时登录凭据清理失败，请重试"
 }
 
 func publicMessage(err error) string {
@@ -493,7 +513,7 @@ func publicMessage(err error) string {
 
 func randomID() (string, error) {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randomRead(b); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
@@ -556,11 +576,12 @@ type tokenData struct {
 }
 
 type accountData struct {
-	UID          string `json:"uid"`
-	EnterpriseID string `json:"enterpriseId"`
-	Type         string `json:"type"`
-	Nickname     string `json:"nickname"`
-	PhoneNumber  string `json:"phoneNumber"`
+	UID          string          `json:"uid"`
+	EnterpriseID string          `json:"enterpriseId"`
+	Type         string          `json:"type"`
+	LastLogin    json.RawMessage `json:"lastLogin"`
+	Nickname     string          `json:"nickname"`
+	PhoneNumber  string          `json:"phoneNumber"`
 }
 
 func (s *LoginService) requestState(ctx context.Context) (stateData, error) {
@@ -725,7 +746,7 @@ func (s *LoginService) doJSON(req *http.Request) (envelope, error) {
 	return env, nil
 }
 
-func (s *LoginService) pendingCredential(target, sessionID string, token tokenData, account accountData) (PendingCredential, error) {
+func (s *LoginService) pendingCredential(target, sessionID string, token tokenData, account accountData) PendingCredential {
 	now := s.now()
 	accessExpiry := token.ExpiresAt
 	if accessExpiry <= 0 && token.ExpiresIn > 0 {
@@ -751,14 +772,17 @@ func (s *LoginService) pendingCredential(target, sessionID string, token tokenDa
 		Nickname:         account.Nickname,
 		PhoneNumber:      account.PhoneNumber,
 		MaskedIdentity:   maskIdentity(account.UID, account.PhoneNumber),
-	}, nil
+	}
 }
 
 func (s *LoginService) effectiveDomain(token tokenData) string {
 	if token.Domain != "" {
 		return token.Domain
 	}
-	base, _ := url.Parse(s.baseURL)
+	base, err := url.Parse(s.baseURL)
+	if err != nil {
+		return ""
+	}
 	return base.Host
 }
 

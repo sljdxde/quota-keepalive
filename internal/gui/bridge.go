@@ -9,14 +9,16 @@ import (
 	"qka/internal/workbuddy"
 )
 
-var errUnsupportedAccountAction = errors.New("账号页暂只支持 WorkBuddy CN 签到与只读复查")
+var errUnsupportedAccountAction = errors.New("账号页只支持签到与额度刷新")
 
 // AccountView is the account-management projection. It contains only
 // user-visible account/source metadata plus today's operation state.
 type AccountView struct {
 	accounts.Account
-	SourceHealth string            `json:"source_health"`
-	Operations   []status.OpStatus `json:"operations"`
+	SourceHealth    string            `json:"source_health"`
+	Operations      []status.OpStatus `json:"operations"`
+	TaskOperations  []string          `json:"task_operations"`
+	TaskPreferences map[string]bool   `json:"task_preferences"`
 }
 
 // AccountBridge 是账号管理页所需的后端能力（由应用装配实现）。
@@ -39,6 +41,8 @@ type AccountBridge interface {
 	Delete(ctx context.Context, target, accountID string) error
 	// PinSource 设置来源优先级（置顶/取消）。
 	PinSource(ctx context.Context, target, accountID, sourceID string, pinned bool) error
-	// Run 对单个账号执行一次操作，复用宿主相同的幂等与证据链。
+	// Run 对单个账号执行一次操作（checkin / refresh）。
 	Run(ctx context.Context, target, accountID, operation string) error
+	// SetTaskEnabled 设置自动执行是否包含该账号的某一任务。
+	SetTaskEnabled(ctx context.Context, target, accountID, operation string, enabled bool) error
 }

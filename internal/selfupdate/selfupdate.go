@@ -29,6 +29,7 @@ type ReleaseInfo struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
+	Name    string `json:"name,omitempty"`
 }
 
 // Plan 是 dry-run 计划。

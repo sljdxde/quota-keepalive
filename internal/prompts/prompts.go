@@ -58,7 +58,7 @@ var catalog = []Prompt{
 	},
 	{
 		Name:        "explain_today_results",
-		Description: "解释今日签到与保活结果",
+		Description: "解释今日签到结果",
 	},
 }
 
@@ -93,8 +93,7 @@ func Render(name string, args map[string]string) ([]Message, error) {
 			"以下操作在宿主侧完成，QKA 不创建任何调度状态：",
 			"1. 在宿主的自动化/定时能力中新建每日任务；",
 			"2. 任务在每个北京日早晨调用 QKA 的 checkin_run；",
-			"3. 若为 WorkBuddy CN，再安排一次 keepalive 调用；",
-			"4. 核验：在宿主侧确认任务已启用并查看最近一次执行结果。",
+			"3. 核验：在宿主侧确认任务已启用并查看最近一次执行结果。",
 		}, "\n")}}, nil
 
 	case "diagnose_failed_account":
@@ -116,7 +115,6 @@ func Render(name string, args map[string]string) ([]Message, error) {
 			"- manual_required：自动签到被拒绝但登录仍可用，请回 WorkBuddy App 签到后复查；",
 			"- failed_retryable：可重试，受冷却约束；",
 			"- failed_final：终态失败，需人工处理；",
-			"- keepalive completed：WorkBuddy 今日真实对话已完成。",
 		}, "\n")}}, nil
 
 	default:

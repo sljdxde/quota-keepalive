@@ -109,3 +109,15 @@ func TestGuardChecksHost(t *testing.T) {
 		t.Fatalf("错误 Host 应拒绝，实际 %v", err)
 	}
 }
+
+func TestHostAndOriginParsingFailurePaths(t *testing.T) {
+	if hostMatches("127.0.0.1:bad", "127.0.0.1:8080") {
+		t.Fatal("非法端口不应匹配")
+	}
+	if hostMatches("example.com", "example.com:8080") {
+		t.Fatal("端口不同不应匹配")
+	}
+	if originLoopback("http://%zz") {
+		t.Fatal("非法 Origin 不应视为本机")
+	}
+}

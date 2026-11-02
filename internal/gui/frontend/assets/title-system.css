@@ -1,0 +1,99 @@
+/* Shared title mark: one icon family, one stroke weight, one quiet ring. */
+.title-icon {
+  display: grid;
+  place-items: center;
+  color: inherit;
+  transform-origin: center;
+  transition: color .18s ease, opacity .18s ease, transform .18s ease;
+}
+
+.title-rank-mark {
+  --title-rank-size: 28px;
+  --title-rank: 0%;
+  position: relative;
+  width: var(--title-rank-size);
+  height: var(--title-rank-size);
+  flex: none;
+  padding: 1.5px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    color-mix(in srgb, var(--title-accent) 82%, var(--fg-2)) 0 var(--title-rank),
+    color-mix(in srgb, var(--line) 74%, transparent) var(--title-rank) 100%
+  );
+  transition: background .28s ease, transform .18s ease, opacity .18s ease;
+}
+
+.title-rank-orb {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 22%, rgba(255,255,255,.48), transparent 44%),
+    color-mix(in srgb, var(--card) 94%, var(--title-accent-soft));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--line) 76%, transparent);
+}
+
+.title-rank-sigil {
+  width: 48%;
+  height: 48%;
+  display: block;
+  color: var(--fg-2);
+  opacity: .88;
+}
+
+.title-icon-current > .title-rank-orb,
+.title-icon-current .title-rank-orb {
+  box-shadow:
+    inset 0 0 0 .5px color-mix(in srgb, var(--title-accent) 18%, var(--line)),
+    0 1px 4px color-mix(in srgb, var(--title-accent) 10%, transparent);
+}
+
+.title-icon-current .title-rank-sigil {
+  color: var(--title-accent);
+  opacity: 1;
+}
+
+.title-rank-count {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 12px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  color: var(--fg-2);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  font: 650 6.5px/1 var(--code);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.title-icon.is-compact .title-rank-count {
+  display: none;
+}
+
+.title-theme-glyph .title-rank-mark {
+  --title-rank-size: 27px;
+  padding: 1px;
+}
+
+.title-level-icon .title-rank-mark {
+  --title-rank-size: 22px;
+  padding: 1px;
+}
+
+.speed-title-icon .title-rank-mark {
+  --title-rank-size: 28px;
+  padding: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-icon,
+  .title-rank-mark {
+    transition: none;
+  }
+}

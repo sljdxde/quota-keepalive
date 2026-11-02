@@ -14,9 +14,14 @@ type HostLike interface {
 	CallWith(ctx context.Context, op string, args map[string]any) (json.RawMessage, error)
 }
 
+type checkinEngine interface {
+	Run(context.Context, engine.Key, engine.Executor) (engine.Observation, error)
+	ReconcileState(context.Context, engine.Key, engine.State, string) error
+}
+
 // CheckinRunner 编排一次签到：引擎租约 + 适配器领取 + 证据门确认。
 type CheckinRunner struct {
-	eng      *engine.Engine
+	eng      checkinEngine
 	host     HostLike
 	now      func() time.Time
 	endpoint string

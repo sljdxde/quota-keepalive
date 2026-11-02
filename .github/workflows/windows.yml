@@ -1,0 +1,98 @@
+name: windows
+
+# Windows 构建与冒烟测试。
+# 说明：这里能覆盖「代码可交叉编译 + CLI 真实可执行 + 包结构完整」；
+# GUI（WebView2 渲染、托盘、任务计划程序、更新替换）仍需要在 Windows 真机上
+# 人工验收，不在本 workflow 的结论范围内。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/windows.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Unit tests
+        shell: pwsh
+        run: go test ./... -count=1
+
+      - name: Vet
+        shell: pwsh
+        run: go vet ./...
+
+      - name: Build CLI
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/build | Out-Null
+          foreach ($arch in @('amd64', 'arm64')) {
+            $env:GOOS = 'windows'
+            $env:GOARCH = $arch
+            $ldflags = "-X qka/internal/cli.Version=0.0.0-ci"
+            go build -trimpath -ldflags $ldflags -o "dist/build/QKA-cli-windows-$arch.exe" ./cmd/qka
+            if ($LASTEXITCODE -ne 0) { throw "CLI build failed for $arch" }
+          }
+
+      - name: Build GUI (requires WebView2 headers from wails)
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          foreach ($arch in @('amd64', 'arm64')) {
+            $env:GOOS = 'windows'
+            $env:GOARCH = $arch
+            $ldflags = "-X qka/internal/cli.Version=0.0.0-ci -X qka/internal/cli.BuildFlavor=gui -s -w -H windowsgui"
+            go build -trimpath -ldflags $ldflags -o "dist/build/QKA-windows-$arch.exe" ./cmd/qka
+            if ($LASTEXITCODE -ne 0) { throw "GUI build failed for $arch" }
+          }
+
+      - name: Stage portable package (amd64)
+        shell: pwsh
+        run: |
+          $stage = 'dist/smoke/QKA-ci-windows-amd64'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item dist/build/QKA-windows-amd64.exe "$stage/QKA.exe"
+          Copy-Item dist/build/QKA-cli-windows-amd64.exe "$stage/QKA-cli.exe"
+          Copy-Item -Recurse adapters "$stage/adapters"
+          Copy-Item -Recurse provider-plugins "$stage/provider-plugins"
+          Copy-Item packaging/windows/README.txt "$stage/README.txt"
+          # bun.exe 在这层不打包：CI 里它只用于验证运行时存在性，真实发布包由
+          # scripts/package-windows.sh 用固定版本的 bun 组装。
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          # bun.exe 不在 CI 包内，脚本第 5 步会跳过；其余检查照常执行。
+          powershell -ExecutionPolicy Bypass -File scripts/windows-smoke.ps1 -PackageDir dist/smoke/QKA-ci-windows-amd64 -SkipTaskRun:$false
+        continue-on-error: false
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: qka-windows-ci
+          path: dist/build/*.exe
+          retention-days: 7

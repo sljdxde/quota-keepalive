@@ -46,7 +46,7 @@ func (s Snapshot) Save(configDir string) error {
 	if err := EnsureDir(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
+	data, err := marshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}

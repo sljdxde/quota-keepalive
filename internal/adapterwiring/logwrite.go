@@ -18,6 +18,8 @@ type logWriteParams struct {
 }
 
 // RegisterLogWrite 把适配器 log.write 钩子接线到 logs 表（命名空间由宿主强制）。
+// message 的可读性与脱敏统一由 capabilities.LogService 写入口负责：插件不得
+// 自行决定什么能进日志，统一规则见 internal/privacy.SanitizeText。
 func RegisterLogWrite(mux *HookMux, db *sql.DB) {
 	mux.On("log.write", func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var p logWriteParams

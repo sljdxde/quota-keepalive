@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"qka/internal/accounts"
+	"qka/internal/features"
 	"qka/internal/status"
 	"qka/internal/store"
 	"qka/internal/workbuddy"
@@ -236,7 +237,15 @@ func TestBridgeListOnlyReturnsWorkBuddyCNWithTodayState(t *testing.T) {
 				NextAction: "请回 WorkBuddy App 签到，完成后再次执行 checkin_run 复查",
 			}},
 		}}}, nil
-	}, nil)
+	}, nil).WithTaskCapabilities(func(target string) []string {
+		if target == "workbuddy-cn" {
+			return []string{"checkin", "keepalive"}
+		}
+		return nil
+	})
+	if err := bridge.SetTaskEnabled(ctx, "workbuddy-cn", "u1", "keepalive", false); err != nil {
+		t.Fatal(err)
+	}
 
 	list, err := bridge.List(ctx)
 	if err != nil {
@@ -253,6 +262,74 @@ func TestBridgeListOnlyReturnsWorkBuddyCNWithTodayState(t *testing.T) {
 	if list[0].SourceHealth != "healthy" {
 		t.Errorf("账号列表应带来源健康状态，实际 %q", list[0].SourceHealth)
 	}
+	if !containsString(list[0].TaskOperations, "checkin") {
+		t.Fatalf("账号列表应带任务能力，实际 %+v", list[0].TaskOperations)
+	}
+	if containsString(list[0].TaskOperations, "keepalive") {
+		t.Fatalf("保活任务不应暴露，实际 %+v", list[0].TaskOperations)
+	}
+	if !list[0].TaskPreferences["checkin"] {
+		t.Errorf("任务偏好投影错误，实际 %+v", list[0].TaskPreferences)
+	}
+}
+
+func TestBridgeListFiltersGloballyDisabledTasksAndMergesVisiblePreferences(t *testing.T) {
+	hosts := &fakeDiscoverer{
+		accounts: []accounts.DiscoveredAccount{{
+			ID: "u1", DisplayName: "User One", MaskedIdentity: "****1234",
+			SourceID: "s1", SourceKind: accounts.KindManaged,
+		}},
+	}
+	bridge, st := newTestBridge(t, hosts, &fakeLoginManager{})
+	ctx := context.Background()
+	if err := bridge.Discover(ctx, "workbuddy-cn"); err != nil {
+		t.Fatal(err)
+	}
+	accountService := accounts.NewService(st.DB())
+	for _, operation := range []string{"refresh", "keepalive"} {
+		if err := accountService.SetTaskEnabled(ctx, "workbuddy-cn", "u1", operation, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	real := bridge.(*realBridge).
+		WithRuntime(func(context.Context) (status.View, error) {
+			return status.View{Accounts: []status.AccountStatus{{
+				Target: "workbuddy-cn", AccountID: "u1",
+				Operations: []status.OpStatus{
+					{Operation: "keepalive"},
+					{Operation: "refresh"},
+				},
+			}}}, nil
+		}, &recordingRunner{}).
+		WithTaskCapabilities(func(string) []string {
+			return []string{"checkin", "keepalive"}
+		})
+
+	list, err := real.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("accounts = %+v", list)
+	}
+	got := []string{}
+	for _, operation := range list[0].TaskOperations {
+		if operation == "keepalive" {
+			t.Fatal("globally disabled keepalive leaked into task operations")
+		}
+		got = append(got, operation)
+	}
+	for _, want := range []string{"checkin", "refresh"} {
+		found := false
+		for _, operation := range got {
+			if operation == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("visible task %q missing from %v", want, got)
+		}
+	}
 }
 
 func TestBoundAccountsRunRejectsUnsupportedTargetAndOperation(t *testing.T) {
@@ -264,8 +341,8 @@ func TestBoundAccountsRunRejectsUnsupportedTargetAndOperation(t *testing.T) {
 		target    string
 		operation string
 	}{
-		{"qoder-cn", "checkin"},
-		{"workbuddy-cn", "keepalive"},
+		{"workbuddy-cn", "unsupported"},
+		{"workbuddy-cn", ""},
 	} {
 		if err := svc.AccountsRun(tc.target, "u1", tc.operation); !errors.Is(err, errUnsupportedAccountAction) {
 			t.Errorf("不支持的账号动作应被拒绝: target=%s operation=%s err=%v",
@@ -275,6 +352,9 @@ func TestBoundAccountsRunRejectsUnsupportedTargetAndOperation(t *testing.T) {
 	if runner.calls != 0 {
 		t.Fatalf("被拒绝的动作不得进入执行链，实际调用 %d 次", runner.calls)
 	}
+	if err := svc.AccountsRun("workbuddy-cn", "u1", "keepalive"); !errors.Is(err, features.ErrKeepaliveDisabled) {
+		t.Fatalf("保活应被全局拒绝，实际 %v", err)
+	}
 
 	if err := svc.AccountsRun("workbuddy-cn", "u1", "checkin"); err != nil {
 		t.Fatal(err)
@@ -282,5 +362,11 @@ func TestBoundAccountsRunRejectsUnsupportedTargetAndOperation(t *testing.T) {
 	if runner.calls != 1 || runner.target != "workbuddy-cn" ||
 		runner.accountID != "u1" || runner.operation != "checkin" {
 		t.Errorf("支持的账号动作应进入执行链，实际 %+v", runner)
+	}
+	if err := svc.AccountsRun("workbuddy-cn", "u1", "refresh"); err != nil {
+		t.Fatal(err)
+	}
+	if runner.calls != 2 || runner.operation != "refresh" {
+		t.Errorf("只读额度刷新应进入执行链，实际 %+v", runner)
 	}
 }

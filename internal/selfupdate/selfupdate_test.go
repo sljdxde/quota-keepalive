@@ -27,6 +27,12 @@ func TestNoUpdate(t *testing.T) {
 	}
 }
 
+func TestCheckForUpdateRejectsMalformedFeed(t *testing.T) {
+	if _, err := CheckForUpdate("1.0.0", []byte("{"), ""); err == nil {
+		t.Fatal("malformed feed must fail")
+	}
+}
+
 func TestMirrorOnlyReplacesPrefix(t *testing.T) {
 	r, err := CheckForUpdate("1.0.0", feedJSON("1.1.0"), "https://mirror.cn")
 	if err != nil {

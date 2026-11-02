@@ -13,6 +13,11 @@ import (
 	"qka/internal/atomicfile"
 )
 
+var (
+	sqlOpen   = sql.Open
+	chmodPath = os.Chmod
+)
+
 // Store 包装一个配置目录对应的 SQLite 数据库。
 type Store struct {
 	db        *sql.DB
@@ -32,7 +37,7 @@ func Open(configDir string) (*Store, error) {
 		dbPath,
 	)
 
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sqlOpen("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +55,7 @@ func Open(configDir string) (*Store, error) {
 	}
 
 	// 显式收敛数据库文件权限，规避 umask 导致的过宽权限。
-	if err := os.Chmod(dbPath, 0o600); err != nil {
+	if err := chmodPath(dbPath, 0o600); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

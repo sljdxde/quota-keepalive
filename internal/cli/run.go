@@ -8,18 +8,32 @@ import (
 	"strings"
 )
 
+var executablePath = os.Executable
+var trayModeHandler = trayHandler
+
 // launchedFromBundle 判定是否从 .app 包内启动（可执行路径位于 *.app/Contents/MacOS/）。
 // 双击 .app 时没有命令行参数，此时应直接进入菜单栏形态而非打印用法。
 func launchedFromBundle() bool {
-	exe, err := os.Executable()
+	exe, err := executablePath()
 	if err != nil {
 		return false
 	}
 	return strings.Contains(exe, ".app/Contents/MacOS/")
 }
 
+// BuildFlavor is set to "gui" for windowless desktop builds. A GUI executable
+// has no terminal to print usage to, so double-clicking it must enter tray mode.
+var BuildFlavor = "cli"
+
+func noArgsMode() string {
+	if BuildFlavor == "gui" || launchedFromBundle() {
+		return "tray"
+	}
+	return "usage"
+}
+
 // modeNames 是单二进制承诺的全部形态，顺序即对外展示顺序。
-var modeNames = []string{"serve", "tray", "panel", "bridge", "tui", "doctor", "update", "autostart"}
+var modeNames = []string{"serve", "tray", "panel", "bridge", "tui", "doctor", "update", "autostart", "task-run"}
 
 // unimplemented 是尚未落地形态的统一处理器：显式报告状态，不崩溃。
 func unimplemented(name string) Handler {
@@ -36,13 +50,14 @@ func buildHandlers(env *Env) map[string]Handler {
 	}
 	h["serve"] = serveHandler
 	h["tray"] = trayHandler
+	h["task-run"] = taskRunHandler
 	return h
 }
 
 const usageText = `QKA — Quota KeepAlive Agent（额度保活代理）
 
 用法：
-  qka <mode> [flags]
+  QKA <mode> [flags]
 
 形态：
   serve       启动 MCP 网关与常驻服务
@@ -53,6 +68,7 @@ const usageText = `QKA — Quota KeepAlive Agent（额度保活代理）
   doctor      诊断
   update      自更新
   autostart   开机自启 on|off
+  task-run    周期自动执行（无窗口）
 
 所有形态支持 --json 输出。
 `
@@ -60,15 +76,14 @@ const usageText = `QKA — Quota KeepAlive Agent（额度保活代理）
 // Run 执行一次命令，返回进程退出码。
 func Run(ctx context.Context, env *Env) int {
 	if len(env.Args) == 0 {
-		// 从 .app 双击启动（无命令行参数）时进入菜单栏形态；终端无参数时打印用法。
-		if launchedFromBundle() {
-			resp, err := trayHandler(ctx, env, nil)
+		// 从 .app 或 Windows GUI 双击启动（无命令行参数）时进入菜单栏形态；
+		// 终端 CLI 无参数时打印用法。
+		if noArgsMode() == "tray" {
+			resp, err := trayModeHandler(ctx, env, nil)
 			if err != nil {
 				return fail(env, nil, &ErrorInfo{Code: "command_failed", Message: err.Error()})
 			}
-			if resp == nil {
-				return 0
-			}
+			_ = resp // tray mode owns its output and exit code.
 			return 0
 		}
 		fmt.Fprint(env.Stdout, usageText)
@@ -96,7 +111,7 @@ func Run(ctx context.Context, env *Env) int {
 			return 1
 		}
 	}
-	return 0
+	return resp.ExitCode
 }
 
 func fail(env *Env, rest []string, info *ErrorInfo) int {

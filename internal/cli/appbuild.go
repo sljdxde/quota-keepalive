@@ -47,13 +47,18 @@ func (c *commonFlags) listenAddr() string {
 
 // buildApp 按共用参数装配组合根。
 func (c *commonFlags) buildApp(ctx context.Context, env *Env) (*app.App, error) {
+	return c.buildAppAt(ctx, env, ResolveConfigDir(env.Getenv))
+}
+
+func (c *commonFlags) buildAppAt(ctx context.Context, env *Env, configDir string) (*app.App, error) {
 	cfg := app.Config{
-		ConfigDir:    ResolveConfigDir(env.Getenv),
-		AdaptersRoot: resolveAdaptersRoot(env, c.adapters),
-		BunPath:      resolveBun(env, c.bun),
-		Version:      Version,
-		BaseURLs:     productionBaseURLs(),
-		AllowedHosts: productionAllowedHosts(),
+		ConfigDir:           configDir,
+		AdaptersRoot:        resolveAdaptersRoot(env, c.adapters),
+		BunPath:             resolveBun(env, c.bun),
+		ProviderPluginsRoot: resolveProviderPluginsRoot(env, ""),
+		Version:             Version,
+		BaseURLs:            productionBaseURLs(),
+		AllowedHosts:        productionAllowedHosts(),
 	}
 	return app.Build(ctx, cfg)
 }

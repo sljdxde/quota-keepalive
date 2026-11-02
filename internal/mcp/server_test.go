@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -53,7 +54,7 @@ func TestInitializeHandshake(t *testing.T) {
 	if result.ProtocolVersion != protocolVersion {
 		t.Errorf("协议版本错误: %s", result.ProtocolVersion)
 	}
-	if result.ServerInfo.Name != "QKA" {
+	if result.ServerInfo.Name != "Quota Keepalive" {
 		t.Errorf("serverInfo 错误: %+v", result.ServerInfo)
 	}
 }
@@ -138,5 +139,84 @@ func TestServerBindsLoopback(t *testing.T) {
 	addr := httpSrv.Addr
 	if !bytes.HasPrefix([]byte(addr), []byte("127.0.0.1:")) {
 		t.Errorf("服务应仅绑定 loopback，实际 %s", addr)
+	}
+}
+
+func TestHandleRejectsNonPostAndInvalidJSON(t *testing.T) {
+	srv := NewServer(ServerDeps{})
+	rec := httptest.NewRecorder()
+	srv.handle(rec, httptest.NewRequest(http.MethodGet, "/mcp", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET 应被拒绝，实际 %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	srv.handle(rec, httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString("{")))
+	var resp rpcResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error == nil || resp.Error.Code != errParseError {
+		t.Fatalf("非法 JSON 应返回 parse error，实际 %+v", resp)
+	}
+}
+
+func TestDispatchToolCallBranches(t *testing.T) {
+	success := NewServer(ServerDeps{CallTool: func(context.Context, string, json.RawMessage) (any, error) {
+		return map[string]any{"ok": true}, nil
+	}}).dispatch(context.Background(), rpcRequest{
+		Method: "tools/call", Params: json.RawMessage(`{"name":"status"}`),
+	})
+	if success.Error != nil || len(success.Result) == 0 {
+		t.Fatalf("成功工具调用应返回 result，实际 %+v", success)
+	}
+
+	invalid := NewServer(ServerDeps{}).dispatch(context.Background(), rpcRequest{
+		Method: "tools/call", Params: json.RawMessage(`"not-object"`),
+	})
+	if invalid.Error == nil || invalid.Error.Code != errInvalidParams {
+		t.Fatalf("非法参数应返回 invalid params，实际 %+v", invalid)
+	}
+
+	callErr := errors.New("call failed")
+	server := NewServer(ServerDeps{CallTool: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, callErr
+	}})
+	resp := server.dispatch(context.Background(), rpcRequest{
+		Method: "tools/call", Params: json.RawMessage(`{"name":"status"}`),
+	})
+	if resp.Error == nil || resp.Error.Code != errInternalError || resp.Error.Message != callErr.Error() {
+		t.Fatalf("调用错误应映射为 internal error，实际 %+v", resp)
+	}
+
+	server = NewServer(ServerDeps{CallTool: func(context.Context, string, json.RawMessage) (any, error) {
+		return make(chan int), nil
+	}})
+	resp = server.dispatch(context.Background(), rpcRequest{
+		Method: "tools/call", Params: json.RawMessage(`{"name":"status"}`),
+	})
+	if resp.Error == nil || resp.Error.Code != errInternalError {
+		t.Fatalf("结果不可序列化应返回 internal error，实际 %+v", resp)
+	}
+
+	resp = server.dispatch(context.Background(), rpcRequest{Method: "notifications/initialized"})
+	if resp.Error != nil || resp.JSONRPC != "2.0" {
+		t.Fatalf("通知不应报错，实际 %+v", resp)
+	}
+}
+
+func TestInitializeCustomVersion(t *testing.T) {
+	resp := NewServer(ServerDeps{Version: "9.9.9"}).dispatch(context.Background(), rpcRequest{Method: "initialize"})
+	var result initializeResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ServerInfo.Version != "9.9.9" {
+		t.Fatalf("应使用注入版本，实际 %s", result.ServerInfo.Version)
+	}
+}
+
+func TestListenAndServeBindFailure(t *testing.T) {
+	if _, err := NewServer(ServerDeps{}).ListenAndServe("bad-address"); err == nil {
+		t.Fatal("非法监听地址应失败")
 	}
 }

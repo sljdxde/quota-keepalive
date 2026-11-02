@@ -16,6 +16,42 @@ func TestInitGeneratesValidSkeleton(t *testing.T) {
 	}
 }
 
+func TestValidateMalformedManifestAndSchemaFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(dir); err == nil {
+		t.Fatal("非法 JSON 应报错")
+	}
+	dir = t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), []byte(`{"schema":"bad"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(dir); err == nil {
+		t.Fatal("无效 manifest schema 应报错")
+	}
+}
+
+func TestInitMkdirAndWriteFailures(t *testing.T) {
+	parent := t.TempDir()
+	file := filepath.Join(parent, "not-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Init(filepath.Join(file, "child")); err == nil {
+		t.Fatal("父路径是文件时 Init 应失败")
+	}
+
+	dir := filepath.Join(parent, "adapter")
+	if err := os.MkdirAll(filepath.Join(dir, ManifestName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Init(dir); err == nil {
+		t.Fatal("目标清单是目录时写入应失败")
+	}
+}
+
 func TestValidateMissingManifest(t *testing.T) {
 	dir := t.TempDir()
 	if err := Validate(dir); err == nil {

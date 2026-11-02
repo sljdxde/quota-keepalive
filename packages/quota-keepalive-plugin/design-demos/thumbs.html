@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quota-keepalive · 六张方向缩略图</title>
+  <style>
+    :root { color-scheme: light; --ink:#202321; --muted:#737a76; --paper:#eceeea; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:#dfe2dd; color:var(--ink); font-family:"Avenir Next","PingFang SC",sans-serif; }
+    main { width:min(1360px, calc(100% - 48px)); margin:0 auto; padding:30px 0 42px; }
+    header { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:18px; }
+    h1 { margin:0; font-size:24px; letter-spacing:-.03em; }
+    header p { margin:0; color:#5c645f; font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; }
+    .thumb { height:238px; position:relative; overflow:hidden; border:1px solid rgba(20,25,22,.16); border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(20,25,22,.08); }
+    .tag { position:absolute; left:10px; top:9px; font:700 10px/1 ui-monospace,monospace; letter-spacing:.1em; padding:4px 6px; border-radius:3px; z-index:3; }
+    .caption { position:absolute; left:10px; bottom:9px; z-index:3; font-size:12px; font-weight:700; }
+    .a { background:#f3f4f1; }
+    .a .rail { position:absolute; left:32px; right:18px; top:45px; height:34px; background:#fff; border:1px solid #bec4bf; display:flex; align-items:center; }
+    .a .rail i { display:block; height:100%; width:24%; background:#ff6b35; }
+    .a .rail b { margin-left:10px; font:700 11px ui-monospace,monospace; }
+    .a .lines { position:absolute; left:32px; right:18px; top:96px; display:grid; gap:8px; }
+    .a .line { height:26px; background:#fff; border:1px solid #d7dbd7; display:flex; align-items:center; padding:0 8px; gap:8px; font-size:10px; }
+    .a .dot { width:7px; height:7px; border-radius:50%; background:#35a46a; }
+    .a .side { position:absolute; right:18px; top:18px; width:80px; height:115px; border-left:4px solid #222; padding:4px 0 0 8px; }
+    .a .side span { display:block; height:20px; border-bottom:1px solid #cbd1cc; font:9px ui-monospace,monospace; }
+    .b { background:#f8fafc; display:grid; grid-template-columns:72px 1fr 64px; }
+    .b .nav { background:#f1f5f9; border-right:1px solid #dbe3eb; padding:40px 8px 1px; }
+    .b .nav span { display:block; height:7px; background:#cbd5e1; margin:6px 0; border-radius:2px; }
+    .b .doc { padding:36px 12px 1px; }
+    .b .doc h3 { font-size:14px; margin:0 0 5px; }
+    .b .doc p { font-size:8px; color:#64748b; margin:0 0 9px; }
+    .b .code { background:#0f172a; color:#a7f3d0; height:42px; padding:7px; font:8px ui-monospace,monospace; }
+    .b .toc { border-left:1px solid #dbe3eb; padding:40px 7px; }
+    .b .toc i { display:block; height:5px; background:#cbd5e1; margin:7px 0; }
+    .c { background:#f2eadb; }
+    .c .spine { position:absolute; left:0; top:0; bottom:0; width:24px; background:linear-gradient(90deg,#d7cdbd,#eee5d6); border-right:1px solid #c9bca8; }
+    .c .title { position:absolute; top:33px; left:38px; font:600 13px/1.4 "Songti SC",serif; }
+    .c .title b { color:#b53625; font-size:20px; margin-right:4px; }
+    .c .ledger { position:absolute; left:38px; right:16px; top:74px; display:grid; gap:1px; background:#cbbda8; }
+    .c .row { background:#f8f2e6; height:30px; display:grid; grid-template-columns:1fr 52px 42px 54px; align-items:center; gap:4px; padding:0 7px; font-size:8px; border-bottom:1px solid #e1d5c3; }
+    .c .seal { width:28px; height:16px; border:1px solid #b53625; color:#b53625; font:700 8px/14px serif; text-align:center; }
+    .c .wave { height:13px; border-bottom:1px solid #971f15; transform:skewY(-7deg); }
+    .d { background:#eee8d9; }
+    .d .bands { position:absolute; display:flex; left:18px; right:18px; top:48px; height:105px; gap:4px; align-items:flex-end; }
+    .d .bands i { flex:1; background:#d1c6ae; border:1px solid #b9ad96; }
+    .d .bands i:nth-child(7) { background:#b23a2c; border-color:#942a20; flex:1.7; }
+    .d .bands i:nth-child(8), .d .bands i:nth-child(9) { background:#1f6256; }
+    .d .task { position:absolute; left:18px; right:18px; bottom:35px; display:grid; grid-template-columns:repeat(4, 1fr); gap:5px; }
+    .d .task span { background:#f8f2e6; border:1px solid #d2c6b1; padding:5px; font-size:8px; }
+    .e { background:#050b15; color:#dff8ff; }
+    .e .spectrum { position:absolute; left:15px; right:62px; top:39px; display:grid; gap:7px; }
+    .e .band { height:21px; border:1px solid #173a50; background:#071424; position:relative; overflow:hidden; }
+    .e .band:before { content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg,transparent 0 16px,#123249 16px 17px); }
+    .e .band b { position:absolute; left:6px; top:5px; font:600 8px ui-monospace,monospace; z-index:1; }
+    .e .band svg { position:absolute; inset:0; width:100%; height:100%; }
+    .e .ticker { position:absolute; right:13px; top:39px; width:41px; bottom:28px; border-left:1px solid #1b506b; }
+    .e .ticker i { display:block; height:1px; background:#16d2a2; margin:7px 0 0 5px; box-shadow:0 0 5px #16d2a2; }
+    .f { background:#101011; color:#f2f0eb; }
+    .f .cmd { position:absolute; left:16px; right:16px; top:44px; height:45px; background:#19191b; border:1px solid #36363a; padding:7px 9px; font:8px/1.5 ui-monospace,monospace; color:#a8e2bb; }
+    .f .panes { position:absolute; left:16px; right:16px; bottom:12px; top:98px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .f .pane { border:1px solid #333338; background:#151517; padding:6px; }
+    .f .pane b { display:block; font-size:8px; margin-bottom:4px; }
+    .f .bars { display:flex; align-items:flex-end; height:30px; gap:2px; }
+    .f .bars i { flex:1; background:#b9a1ff; }
+    @media (max-width:900px) {
+      main { width:calc(100% - 24px); padding-top:18px; }
+      .grid { grid-template-columns:1fr; }
+      .thumb { height:280px; }
+      header { display:block; }
+      header p { margin-top:4px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>六张方向卡 · quota-keepalive</h1>
+      <p>真实账号状态与额度历史 · 六选三 · 交互原型</p>
+    </header>
+    <section class="grid">
+      <article class="thumb a">
+        <span class="tag" style="background:#ff6b35;color:#1a1a1a">A · 值守台</span>
+        <div class="rail"><i></i><b>每 1 小时 · 下次 11:12</b></div>
+        <div class="lines">
+          <div class="line"><span class="dot"></span>WorkBuddy · 2/2 已签到</div>
+          <div class="line"><span class="dot"></span>CodeArts · 2/2 已签到</div>
+          <div class="line"><span style="width:7px;height:7px;border-radius:50%;background:#c58a32"></span>Trae CN · 2 个不符合条件</div>
+        </div>
+        <div class="side"><span>10:01</span><span>10:02</span><span>11:00</span><span>11:01</span></div>
+        <span class="caption">调度母线 + 供应商线路 + 执行时间线</span>
+      </article>
+      <article class="thumb b">
+        <span class="tag" style="background:#38bdf8;color:#06263b">B · 运行手册</span>
+        <div class="nav"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="doc"><h3>签到与保活规则</h3><p>每个账号独立配置，统一周期运行。</p><div class="code">$ quota check --all --dry-run</div></div>
+        <div class="toc"><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="caption" style="color:#1f2937">三栏文档 + 规则解释 + 配置块</span>
+      </article>
+      <article class="thumb c">
+        <span class="tag" style="background:#b53625;color:#fff">C · 额度账本</span>
+        <div class="spine"></div>
+        <div class="title"><b>叁</b> 今日额度账页</div>
+        <div class="ledger">
+          <div class="row"><b>WorkBuddy · 睡懒觉的薛定谔</b><span class="seal">签</span><span class="seal" style="border-color:#517d60;color:#517d60">活</span><div class="wave"></div></div>
+          <div class="row"><b>WorkBuddy · 189****7198</b><span class="seal">签</span><span class="seal" style="border-color:#517d60;color:#517d60">活</span><div class="wave"></div></div>
+          <div class="row"><b>CodeArts · 账号 1</b><span class="seal">签</span><span style="font-size:7px;color:#8f7e69">暂不保活</span><div class="wave"></div></div>
+        </div>
+        <span class="caption" style="color:#554838">账页 + 签到/保活双印 + 行尾额度折线</span>
+      </article>
+      <article class="thumb d">
+        <span class="tag" style="background:#1f6256;color:#fff">D · 节气账谱</span>
+        <div class="bands"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="task"><span>下次 11:00</span><span>签到 7 / 12</span><span>保活 0</span><span>失败 0</span></div>
+        <span class="caption">24 色时间色谱 + 周期刻度 + 供应商谱带</span>
+      </article>
+      <article class="thumb e">
+        <span class="tag" style="background:#16d2a2;color:#03110d">E · 信号谱</span>
+        <div class="spectrum">
+          <div class="band"><b>WORKBUDDY</b><svg viewBox="0 0 330 21"><polyline points="0,14 38,13 66,8 104,15 145,11 188,6 230,14 276,10 330,12" fill="none" stroke="#16d2a2" stroke-width="1.4"/></svg></div>
+          <div class="band"><b>CODEARTS</b><svg viewBox="0 0 330 21"><polyline points="0,8 48,9 76,12 112,7 152,16 196,10 242,13 286,8 330,9" fill="none" stroke="#46a8ff" stroke-width="1.4"/></svg></div>
+          <div class="band"><b>TRAE CN</b><svg viewBox="0 0 330 21"><polyline points="0,18 36,16 74,18 110,15 146,17 184,14 220,17 262,15 330,17" fill="none" stroke="#ff7b54" stroke-width="1.4"/></svg></div>
+        </div>
+        <div class="ticker"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="caption">纵向信号栈 + 额度波形 + 右侧事件带</span>
+      </article>
+      <article class="thumb f">
+        <span class="tag" style="background:#b9a1ff;color:#17121f">F · 终端值守</span>
+        <div class="cmd">$ quota schedule --every 1h<br><span style="color:#f2f0eb">scheduler on · next 11:00 · 12 accounts</span></div>
+        <div class="panes">
+          <div class="pane"><b>WORKBUDDY</b><div class="bars"><i style="height:74%"></i><i style="height:70%"></i><i style="height:66%"></i><i style="height:63%"></i><i style="height:61%"></i><i style="height:58%"></i><i style="height:55%"></i></div></div>
+          <div class="pane"><b>CODEARTS</b><div class="bars"><i style="height:42%"></i><i style="height:42%"></i><i style="height:38%"></i><i style="height:35%"></i><i style="height:31%"></i><i style="height:28%"></i><i style="height:25%"></i></div></div>
+        </div>
+        <span class="caption">命令式调度 + 字符块趋势 + 终端日志</span>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

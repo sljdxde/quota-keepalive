@@ -36,7 +36,7 @@ func TestLogRetentionAndNoCredentials(t *testing.T) {
 	}
 	db := st.DB()
 
-	old := time.Now().Add(-31 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	old := time.Now().Add(-49 * time.Hour).UTC().Format(time.RFC3339)
 	_, _ = db.Exec(`INSERT INTO logs (ts,target,account_id,operation,state,level,message)
 	 VALUES (?,?,?,?,?,?,?)`, old, "x", "x", "checkin", "ok", "info", "old")
 	if err := logtail.Prune(context.Background(), db, time.Now()); err != nil {
@@ -47,7 +47,7 @@ func TestLogRetentionAndNoCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(page.Entries) != 0 {
-		t.Fatal("超过 30 天的日志必须被清理")
+		t.Fatal("超过 48 小时的日志必须被清理")
 	}
 }
 

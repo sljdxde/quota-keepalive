@@ -94,8 +94,8 @@ func TestWorkBuddyVerificationSinkPersistsCredentialAndPreservesExistingState(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acc.Enabled {
-		t.Fatal("首次验证通过的账号必须默认停用")
+	if !acc.Enabled {
+		t.Fatal("首次验证通过的健康账号必须自动启用")
 	}
 	if acc.DisplayName != "****3456" || acc.MaskedIdentity != "****3456" {
 		t.Errorf("账号展示必须只含脱敏身份: %+v", acc)
@@ -128,9 +128,6 @@ func TestWorkBuddyVerificationSinkPersistsCredentialAndPreservesExistingState(t 
 		t.Error("受管凭据内容不一致")
 	}
 
-	if err := acct.SetEnabled(ctx, "workbuddy-cn", verified.AccountID, true); err != nil {
-		t.Fatal(err)
-	}
 	if err := acct.PinSource(ctx, "workbuddy-cn", verified.AccountID, verified.SourceID, true); err != nil {
 		t.Fatal(err)
 	}

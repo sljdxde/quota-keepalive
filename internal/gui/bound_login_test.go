@@ -44,6 +44,12 @@ func (f *loginBoundAccounts) Run(ctx context.Context, target, accountID, operati
 	return f.runner.RunAccount(ctx, target, accountID, operation)
 }
 
+func (f *loginBoundAccounts) SetTaskEnabled(
+	context.Context, string, string, string, bool,
+) error {
+	return nil
+}
+
 func TestBoundLoginJSONExposesStateButNoCredentials(t *testing.T) {
 	accts := &loginBoundAccounts{view: workbuddy.LoginView{
 		SessionID: "session-1",

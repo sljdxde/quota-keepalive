@@ -7,8 +7,8 @@ import (
 
 // compareVersions 比较两个点分版本号：a>b 返回 1，a<b 返回 -1，相等返回 0。
 func compareVersions(a, b string) int {
-	pa := strings.FieldsFunc(a, func(r rune) bool { return r == '.' })
-	pb := strings.FieldsFunc(b, func(r rune) bool { return r == '.' })
+	pa := strings.FieldsFunc(normalizeVersion(a), func(r rune) bool { return r == '.' })
+	pb := strings.FieldsFunc(normalizeVersion(b), func(r rune) bool { return r == '.' })
 
 	for i := 0; i < len(pa) || i < len(pb); i++ {
 		var va, vb int
@@ -26,6 +26,14 @@ func compareVersions(a, b string) int {
 		}
 	}
 	return 0
+}
+
+func normalizeVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 1 && (value[0] == 'v' || value[0] == 'V') {
+		return value[1:]
+	}
+	return value
 }
 
 func segment(s string) int {

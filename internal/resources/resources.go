@@ -33,7 +33,7 @@ type Resource struct {
 
 // catalog 是五个固定只读资源（无 schedule）。
 var catalog = []Resource{
-	{URI: "qka://status/today", Name: "今日状态", Description: "今日签到与保活状态", MimeType: "application/json"},
+	{URI: "qka://status/today", Name: "今日状态", Description: "今日签到状态", MimeType: "application/json"},
 	{URI: "qka://agents", Name: "Agents", Description: "已注册适配器", MimeType: "application/json"},
 	{URI: "qka://accounts", Name: "账号", Description: "账号与来源", MimeType: "application/json"},
 	{URI: "qka://logs", Name: "日志", Description: "日志（支持 cursor 查询参数）", MimeType: "application/json"},
@@ -85,5 +85,4 @@ func parseQuery(q string) map[string]string {
 
 const hostIntegrationText = `宿主侧集成指引：
 - QKA 不创建调度：请在宿主侧安排每日调用 checkin_run；
-- WorkBuddy CN 另需每日 keepalive 调用；
 - 宿主内部计划对 QKA 不可观察，请在宿主侧核验。`

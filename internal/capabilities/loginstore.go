@@ -78,15 +78,23 @@ func (s *LoginCredentialStore) Delete(ctx context.Context, sessionID string) err
 		return err
 	}
 	var deleted bool
+	var failures []error
 	if s.keychain != nil {
 		if err := s.keychain.Delete(ctx, serviceName, account); err == nil {
 			deleted = true
+		} else if !errors.Is(err, ErrSecretNotFound) {
+			failures = append(failures, err)
 		}
 	}
 	if s.file != nil {
 		if err := s.file.Delete(ctx, serviceName, account); err == nil {
 			deleted = true
+		} else if !errors.Is(err, ErrSecretNotFound) {
+			failures = append(failures, err)
 		}
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
 	}
 	if deleted {
 		return nil

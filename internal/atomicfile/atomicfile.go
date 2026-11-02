@@ -3,9 +3,26 @@
 package atomicfile
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+)
+
+type temporaryFile interface {
+	Name() string
+	Chmod(fs.FileMode) error
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
+var (
+	chmodPath      = os.Chmod
+	createTempFile = func(dir, pattern string) (temporaryFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}
+	marshalIndent = json.MarshalIndent
 )
 
 // EnsureDir 创建目录（含必要父级），并把最终目录权限收敛为 perm。
@@ -14,7 +31,7 @@ func EnsureDir(dir string, perm fs.FileMode) error {
 	if err := os.MkdirAll(dir, perm); err != nil {
 		return err
 	}
-	return os.Chmod(dir, perm)
+	return chmodPath(dir, perm)
 }
 
 // WriteFile 在目标文件同目录创建临时文件，写入并 fsync 后 rename 原子替换。
@@ -23,7 +40,7 @@ func EnsureDir(dir string, perm fs.FileMode) error {
 func WriteFile(path string, data []byte, perm fs.FileMode) error {
 	dir := filepath.Dir(path)
 
-	tmp, err := os.CreateTemp(dir, ".state-*.tmp")
+	tmp, err := createTempFile(dir, ".state-*.tmp")
 	if err != nil {
 		return err
 	}

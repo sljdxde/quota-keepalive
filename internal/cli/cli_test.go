@@ -29,6 +29,9 @@ func decodeJSON(t *testing.T, b *bytes.Buffer) map[string]any {
 }
 
 func TestNoArgsPrintsUsageListingAllModes(t *testing.T) {
+	oldFlavor := BuildFlavor
+	BuildFlavor = "cli"
+	t.Cleanup(func() { BuildFlavor = oldFlavor })
 	out, _, env := newTestEnv()
 	code := Run(context.Background(), env)
 	if code != 0 {
@@ -39,6 +42,24 @@ func TestNoArgsPrintsUsageListingAllModes(t *testing.T) {
 		if !strings.Contains(help, mode) {
 			t.Errorf("帮助文本缺少形态 %q\n%s", mode, help)
 		}
+	}
+}
+
+func TestGUIWithoutArgsSelectsTrayMode(t *testing.T) {
+	oldFlavor := BuildFlavor
+	BuildFlavor = "gui"
+	t.Cleanup(func() { BuildFlavor = oldFlavor })
+	if got := noArgsMode(); got != "tray" {
+		t.Fatalf("GUI 无参数启动应进入托盘，实际 %q", got)
+	}
+}
+
+func TestCLIWithoutArgsSelectsUsageMode(t *testing.T) {
+	oldFlavor := BuildFlavor
+	BuildFlavor = "cli"
+	t.Cleanup(func() { BuildFlavor = oldFlavor })
+	if got := noArgsMode(); got != "usage" {
+		t.Fatalf("CLI 无参数启动应打印用法，实际 %q", got)
 	}
 }
 

@@ -5,7 +5,7 @@
 ## 位置与文件
 
 - 地图与全部工单在 `.scratch/wayfinder/` 下，一个 markdown 文件 = 一个 issue。
-- 地图：`map.md`（frontmatter `labels: [wayfinder:map]`）。
+- 地图：一个努力一个地图，文件名 `map-<effort>.md`（frontmatter `labels: [wayfinder:map]`）。旧努力的地图保持原位；当前独立重构使用 `map-standalone.md`，已关闭的设计地图仍为 `map.md`。
 - 工单：`NNN-slug.md`，frontmatter 含：
   - `id`：`qka-NNN`
   - `title`：工单名（叙述中一律用名字，不用裸 id）

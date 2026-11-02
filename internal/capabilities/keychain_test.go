@@ -2,6 +2,7 @@ package capabilities
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"testing"
 )
@@ -21,6 +22,33 @@ func TestKeychainGetSuccess(t *testing.T) {
 	}
 	if got != "token-value" {
 		t.Errorf("应去掉尾部换行并返回明文，实际 %q", got)
+	}
+}
+
+func TestKeychainGetDecodesSecurityHexJSON(t *testing.T) {
+	payload := "{\n  \"provider\": \"workbuddy\"\n}"
+	encoded := hex.EncodeToString([]byte(payload)) + "\n"
+	k := NewKeychainStore().withRunner(runnerReturning(execResult{
+		stdout: []byte(encoded), exitCode: 0}))
+	got, err := k.Get(context.Background(), "qka", "acct")
+	if err != nil {
+		t.Fatalf("Get 失败: %v", err)
+	}
+	if got != payload {
+		t.Errorf("应还原 security 输出的十六进制 JSON，实际 %q", got)
+	}
+}
+
+func TestKeychainGetKeepsPrintableHexSecret(t *testing.T) {
+	value := hex.EncodeToString([]byte("not-json"))
+	k := NewKeychainStore().withRunner(runnerReturning(execResult{
+		stdout: []byte(value + "\n"), exitCode: 0}))
+	got, err := k.Get(context.Background(), "qka", "acct")
+	if err != nil {
+		t.Fatalf("Get 失败: %v", err)
+	}
+	if got != value {
+		t.Errorf("可打印十六进制文本不应被误解码，实际 %q", got)
 	}
 }
 

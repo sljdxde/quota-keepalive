@@ -34,6 +34,27 @@ func TestLoadMissingReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestPairingPersistenceFailures(t *testing.T) {
+	parent := t.TempDir()
+	blocker := filepath.Join(parent, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(blocker, New()); err == nil {
+		t.Fatal("配置目录为文件时保存应失败")
+	}
+	if _, err := LoadPairing(blocker); err == nil {
+		t.Fatal("配置目录为文件时读取应失败")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pairing.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPairing(dir); err == nil {
+		t.Fatal("损坏配对文件应报错")
+	}
+}
+
 func TestPairingFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	_ = Save(dir, New())

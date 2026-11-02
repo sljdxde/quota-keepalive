@@ -42,6 +42,16 @@ func TestPreviewUnsupportedHost(t *testing.T) {
 	}
 }
 
+func TestPreviewRejectsKnownHostWithoutMCP(t *testing.T) {
+	old := profiles
+	t.Cleanup(func() { profiles = old })
+	profiles = append([]Profile(nil), old...)
+	profiles = append(profiles, Profile{HostID: "manual-only", MCPSupported: false})
+	if _, err := Preview("manual-only"); err != ErrUnsupportedHost {
+		t.Fatalf("已知但不支持 MCP 的宿主应拒绝，实际 %v", err)
+	}
+}
+
 func TestVerifyDownload(t *testing.T) {
 	data := []byte("qka-binary")
 	sum := sha256.Sum256(data)

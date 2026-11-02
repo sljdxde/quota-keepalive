@@ -14,8 +14,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ARCH="${ARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
-VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
-BUILD="$(git rev-parse --short HEAD 2>/dev/null || echo 0)"
+VERSION="${QKA_VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+VERSION="${VERSION#v}"
+if [[ ! "$VERSION" =~ ^[0-9A-Za-z._+-]+$ ]]; then
+  echo "invalid version: $VERSION" >&2
+  exit 2
+fi
+if [[ ! "$VERSION" =~ ^[0-9] ]]; then
+  VERSION="0.0.0-$VERSION"
+fi
+BUILD="${QKA_BUILD_NUMBER:-$(date +%Y%m%d%H%M%S)}"
+if [[ ! "$BUILD" =~ ^[0-9]+$ ]]; then
+  echo "QKA_BUILD_NUMBER must contain digits only" >&2
+  exit 2
+fi
+case "$ARCH" in
+  arm64|amd64|universal) ;;
+  *) echo "unsupported ARCH=$ARCH" >&2; exit 2 ;;
+esac
 APP_NAME="QKA"
 DIST="$ROOT/dist"
 WORK="$DIST/app"
@@ -53,7 +69,7 @@ build_arch() {
   echo "    -> $goarch"
   CGO_ENABLED=1 GOOS=darwin GOARCH="$goarch" \
     go build -trimpath \
-      -ldflags "-X qka/internal/cli.Version=$VERSION" \
+      -ldflags "-X qka/internal/cli.Version=$VERSION -X qka/internal/cli.BuildFlavor=gui" \
       -o "$out" ./cmd/qka
 }
 
@@ -67,13 +83,49 @@ else
   build_arch "$goarch" "$BIN_OUT"
 fi
 
+bun_archs() {
+  lipo -archs "$1" 2>/dev/null | tr ' ' '\n'
+}
+
+resolve_single_bun() {
+  local arch="$1"
+  local var path
+  case "$arch" in
+    arm64) var="BUN_ARM64"; path="${BUN_ARM64:-${BUN_PATH:-}}" ;;
+    amd64) var="BUN_AMD64"; path="${BUN_AMD64:-${BUN_PATH:-}}" ;;
+    *) echo "unsupported Bun architecture: $arch" >&2; exit 2 ;;
+  esac
+  if [[ -z "$path" ]]; then
+    path="$(command -v bun || true)"
+  fi
+  if [[ -z "$path" || ! -f "$path" ]]; then
+    echo "Bun runtime for $arch is required; set $var or BUN_PATH" >&2
+    exit 2
+  fi
+  if ! bun_archs "$path" | grep -qx "$arch"; then
+    echo "Bun runtime $path does not contain $arch" >&2
+    exit 2
+  fi
+  printf '%s\n' "$path"
+}
+
 # ---- 3. 组装 .app bundle ----
 echo "==> 组装 $APP_NAME.app"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
+if [[ ! -d "$ROOT/provider-plugins" ]]; then
+  echo "provider-plugins directory is required" >&2
+  exit 2
+fi
+if [[ ! -d "$ROOT/adapters" ]]; then
+  echo "adapters directory is required" >&2
+  exit 2
+fi
 cp "$BIN_OUT" "$MACOS_DIR/qka"
 chmod +x "$MACOS_DIR/qka"
 cp "$WORK/AppIcon.icns" "$RES_DIR/AppIcon.icns"
+cp -R "$ROOT/provider-plugins" "$RES_DIR/provider-plugins"
+find "$RES_DIR/provider-plugins" -name ".DS_Store" -delete 2>/dev/null || true
 
 # Info.plist（替换版本占位）
 sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" \
@@ -83,9 +135,26 @@ sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" \
 cp -R adapters "$MACOS_DIR/adapters"
 rm -rf "$MACOS_DIR/adapters/_template"
 find "$MACOS_DIR/adapters" -name ".DS_Store" -delete 2>/dev/null || true
-if command -v bun >/dev/null 2>&1; then
-  cp "$(command -v bun)" "$MACOS_DIR/bun"
-  chmod +x "$MACOS_DIR/bun"
+if [[ "$ARCH" == "universal" ]]; then
+  bun_arm64="$(resolve_single_bun arm64)"
+  bun_amd64="$(resolve_single_bun amd64)"
+  lipo -create -output "$MACOS_DIR/bun" "$bun_arm64" "$bun_amd64"
+else
+  cp "$(resolve_single_bun "$ARCH")" "$MACOS_DIR/bun"
+fi
+chmod +x "$MACOS_DIR/bun"
+if [[ "$ARCH" == "universal" ]]; then
+  for arch in arm64 amd64; do
+    bun_archs "$MACOS_DIR/bun" | grep -qx "$arch" || {
+      echo "bundled Bun is missing $arch" >&2
+      exit 2
+    }
+  done
+else
+  bun_archs "$MACOS_DIR/bun" | grep -qx "$ARCH" || {
+    echo "bundled Bun architecture does not match $ARCH" >&2
+    exit 2
+  }
 fi
 
 # PkgInfo
@@ -95,8 +164,8 @@ echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 echo "==> Ad-hoc 代码签名"
 codesign --force --deep --sign - \
   --options runtime --timestamp=none \
-  "$APP_BUNDLE" 2>&1 | grep -v "code object is not signed" || true
-codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" 2>&1 | tail -2 || true
+  "$APP_BUNDLE"
+codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 # ---- 5. 打包 DMG ----
 echo "==> 打包 DMG"
@@ -116,15 +185,24 @@ rm -f "$DMG_FILE"
 hdiutil create -volname "QKA" -srcfolder "$DMG_STAGE" \
   -ov -format UDRW "$DIST/dmg-rw.dmg" >/dev/null
 
-# 挂载并美化（拖拽布局）
-MOUNT_DIR="/Volumes/QKA"
-hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
-hdiutil attach "$DIST/dmg-rw.dmg" -nobrowse -readwrite >/dev/null
+# 挂载并美化（拖拽布局）。只解析并卸载本次创建的卷，绝不按固定名称
+# detach 用户已经挂载的其他磁盘。
+ATTACH_OUTPUT="$(hdiutil attach "$DIST/dmg-rw.dmg" -nobrowse -readwrite)"
+MOUNT_DIR="$(printf '%s\n' "$ATTACH_OUTPUT" | awk -F '\t' 'END {print $NF}')"
+if [[ -z "$MOUNT_DIR" || ! -d "$MOUNT_DIR" ]]; then
+  echo "failed to resolve QKA DMG mount point" >&2
+  exit 1
+fi
+cleanup_mount() {
+  hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
+}
+trap cleanup_mount EXIT
+DISK_NAME="$(basename "$MOUNT_DIR")"
 
 # 用 AppleScript 设置 Finder 视图与图标位置（失败不阻断，仅影响美观）
-osascript <<'APPLESCRIPT' 2>/dev/null || true
+osascript <<APPLESCRIPT 2>/dev/null || true
 tell application "Finder"
-  set diskName to "QKA"
+  set diskName to "$DISK_NAME"
   set diskContainer to disk diskName
   set current view of container window of diskContainer to icon view
   set toolbar visible of container window of diskContainer to false
@@ -138,7 +216,8 @@ tell application "Finder"
 end tell
 APPLESCRIPT
 
-hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
+hdiutil detach "$MOUNT_DIR" >/dev/null
+trap - EXIT
 hdiutil convert "$DIST/dmg-rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$DMG_FILE" >/dev/null
 rm -f "$DIST/dmg-rw.dmg"
 rm -rf "$DMG_STAGE"

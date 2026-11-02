@@ -1,0 +1,10 @@
+name = "qka-feedback"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+GITHUB_REPOSITORY = "sljdxde/quota-keepalive"
+ASSET_BRANCH = "feedback-assets"
+
+# Set these with `npx wrangler secret put GITHUB_TOKEN` and
+# `npx wrangler secret put SITE_KEY`. Never put tokens in this file.

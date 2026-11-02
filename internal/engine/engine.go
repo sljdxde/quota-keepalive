@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,8 @@ type Observation struct {
 	State     State     `json:"state"`
 	Executed  bool      `json:"executed"` // 本次是否真的发起了目标侧请求
 	Message   string    `json:"message,omitempty"`
+	Credits   *float64  `json:"credits,omitempty"`
+	Balance   *float64  `json:"balance,omitempty"`
 }
 
 // Executor 执行一次目标侧动作（上层注入适配器调用；测试用假件计数）。
@@ -160,6 +163,44 @@ WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?
 		return false, err
 	}
 	return rows == 1, nil
+}
+
+// RecordUsage stores only whitelisted quota observations for today's row.
+// A nil pointer means unknown; a non-nil zero is a real zero reading.
+func (e *Engine) RecordUsage(
+	ctx context.Context,
+	key Key,
+	credits, balance *float64,
+) error {
+	if credits == nil && balance == nil {
+		return nil
+	}
+	now := e.clock()
+	day := BeijingDay(now)
+	nowTS := formatTS(now)
+	if err := e.ensureRow(ctx, key, day, nowTS); err != nil {
+		return err
+	}
+
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 8)
+	if credits != nil {
+		sets = append(sets, "credits = ?", "credits_known = 1")
+		args = append(args, *credits)
+	}
+	if balance != nil {
+		sets = append(sets, "balance = ?", "balance_known = 1")
+		args = append(args, *balance)
+	}
+	sets = append(sets, "updated_at = ?")
+	args = append(args, nowTS, key.Target, key.AccountID,
+		string(key.Operation), day)
+
+	_, err := e.db.ExecContext(ctx, `
+UPDATE daily_ops
+SET `+strings.Join(sets, ", ")+`
+WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`, args...)
+	return err
 }
 
 // complete 写回新状态并释放租约；保活可重试失败时设置冷却。

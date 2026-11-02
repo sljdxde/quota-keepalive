@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quota-keepalive · 额度账本</title>
+  <style>
+    :root {
+      --paper:#efe5d2; --paper-2:#f8f1e5; --paper-3:#e8dcc6;
+      --ink:#27241f; --muted:#665d50; --faint:#887964;
+      --line:#c8b89f; --line-dark:#897962; --red:#a93225; --red-soft:#f2d8d0;
+      --green:#38583f; --green-soft:#e1e9df; --amber:#79530e;
+      --serif:"Noto Serif SC","Songti SC","STSong",serif;
+      --sans:"FZKai-Z03","Kaiti SC","PingFang SC",sans-serif;
+      --mono:"SFMono-Regular","Roboto Mono","PingFang SC",monospace;
+      --body:"Noto Serif SC","Songti SC","STSong",serif;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; color:var(--ink); background:var(--paper);
+      font:14px/1.7 var(--body);
+      background-image:
+        repeating-linear-gradient(0deg, rgba(120,100,70,.025) 0, rgba(120,100,70,.025) 1px, transparent 1px, transparent 5px),
+        radial-gradient(circle at 14% 2%, rgba(255,255,255,.5), transparent 28rem);
+    }
+    button, input, select { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--red); outline-offset:2px; }
+    .book { display:grid; grid-template-columns:62px minmax(0,1fr); min-height:100vh; }
+    .binding {
+      position:relative; border-right:1px solid #baa98f;
+      background:linear-gradient(90deg, rgba(90,70,45,.11), transparent 24%, rgba(255,255,255,.18));
+      box-shadow:inset -8px 0 12px rgba(90,70,45,.04);
+    }
+    .binding-mark {
+      position:sticky; top:22px; display:flex; flex-direction:column; align-items:center; gap:18px;
+    }
+    .binding-mark .logo {
+      width:34px; height:42px; display:grid; place-items:center; color:var(--paper-2);
+      background:var(--red); font:800 12px/1 var(--mono); writing-mode:vertical-rl; letter-spacing:.15em;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);
+    }
+    .binding-mark .thread { width:1px; height:130px; background:repeating-linear-gradient(0deg,var(--line-dark) 0 4px,transparent 4px 9px); opacity:.4; }
+    .binding-mark .folio { writing-mode:vertical-rl; color:var(--muted); font:10px var(--mono); letter-spacing:.15em; }
+    .sheet { width:min(1370px, calc(100% - 36px)); margin:0 auto; padding:22px 0 38px; }
+    .doc-head {
+      display:grid; grid-template-columns:minmax(0,1fr) auto; gap:20px; align-items:end;
+      border-bottom:1px solid var(--line-dark); padding:5px 2px 16px;
+    }
+    .kicker { color:var(--red); font:700 10px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase; }
+    h1 { margin:4px 0 5px; font:600 clamp(28px,3.5vw,42px)/1.08 var(--serif); letter-spacing:-.045em; }
+    .doc-sub { margin:0; color:var(--muted); font-size:12px; }
+    .doc-number { display:flex; gap:16px; align-items:flex-end; }
+    .folio-no { color:var(--muted); text-align:right; font:10px/1.5 var(--mono); }
+    .folio-no b { display:block; color:var(--ink); font-size:24px; font-weight:600; }
+    .seal.date {
+      display:grid; place-items:center; width:62px; height:62px; border:2px solid var(--red); color:var(--red);
+      font:600 12px/1.3 var(--serif); text-align:center; transform:rotate(-3deg);
+    }
+    .schedule {
+      margin:15px 0 0; border:1px solid var(--line-dark); background:rgba(248,241,229,.68);
+    }
+    .schedule-top {
+      display:grid; grid-template-columns:120px 1fr auto; align-items:center; gap:14px;
+      min-height:42px; padding:6px 10px; border-bottom:1px solid var(--line);
+    }
+    .schedule-title { font:600 12px var(--serif); }
+    .schedule-title small { display:block; color:var(--muted); font:9px var(--mono); letter-spacing:.08em; }
+    .schedule-set { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:11px; }
+    .schedule-set input {
+      width:52px; height:28px; border:0; border-bottom:1px solid var(--line-dark); border-radius:0;
+      color:var(--ink); background:transparent; text-align:center; font:700 15px var(--mono);
+    }
+    .schedule-set select {
+      height:28px; border:0; border-bottom:1px solid var(--line-dark); border-radius:0;
+      color:var(--ink); background:transparent; font:700 11px var(--mono);
+    }
+    .schedule-next { color:var(--muted); font-size:11px; }
+    .schedule-next b { margin-left:5px; color:var(--red); font:700 17px var(--mono); letter-spacing:-.04em; }
+    .schedule-actions { display:flex; align-items:center; gap:7px; justify-content:flex-end; }
+    .stamp-button {
+      min-height:32px; padding:0 12px; border:1px solid var(--line-dark); border-radius:0;
+      color:var(--ink); background:rgba(255,255,255,.25); font:600 11px var(--sans);
+    }
+    .stamp-button:hover { color:var(--red); border-color:var(--red); }
+    .stamp-button.red { color:var(--red); border-color:var(--red); background:var(--red-soft); }
+    .stamp-button.green { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+    .schedule .master {
+      width:82px; height:28px; border:1px solid var(--line-dark); border-radius:0; background:transparent;
+      color:var(--red); font:600 10px/1 var(--sans); transform:rotate(-1deg);
+    }
+    .schedule .master[aria-pressed="false"] { color:var(--muted); border-color:var(--line); }
+    .main-grid {
+      display:grid; grid-template-columns:minmax(0,1fr) 310px; gap:22px; align-items:start;
+      margin-top:18px;
+    }
+    .ledger-head {
+      display:flex; align-items:baseline; justify-content:space-between; padding:0 2px 7px;
+      color:var(--muted); font:10px var(--mono); letter-spacing:.06em;
+    }
+    .ledger-head strong { color:var(--ink); font:600 16px var(--serif); letter-spacing:0; }
+    .ledger { border-top:2px solid var(--ink); }
+    .provider {
+      border-bottom:1px solid var(--line-dark); background:rgba(248,241,229,.42);
+    }
+    .provider-row {
+      display:grid; grid-template-columns:38px minmax(160px,1.45fr) minmax(160px,1fr) 72px 60px 24px;
+      align-items:center; gap:10px; min-height:58px; padding:7px 7px 7px 4px;
+    }
+    .provider-row:hover { background:rgba(255,255,255,.23); }
+    .provider-icon {
+      width:30px; height:30px; display:grid; place-items:center; overflow:hidden;
+      filter:saturate(.72) contrast(.95); border:1px solid rgba(90,70,45,.17);
+    }
+    .provider-icon svg { width:100%; height:100%; }
+    .provider-name strong { display:block; font:600 14px var(--serif); }
+    .provider-name small { display:block; color:var(--muted); font:9.5px/1.45 var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .provider-count { font-size:10px; color:var(--muted); }
+    .provider-count b { display:block; color:var(--ink); font:700 12px var(--mono); }
+    .status-word { color:var(--muted); font:600 10px var(--mono); text-align:right; }
+    .status-word.ok { color:var(--green); }
+    .status-word.warn { color:var(--amber); }
+    .provider-power {
+      width:52px; height:26px; border:1px solid var(--line-dark); border-radius:0; background:transparent;
+      color:var(--muted); font:600 9px/1 var(--sans);
+    }
+    .provider-power[aria-pressed="true"] { color:var(--green); border-color:var(--green); background:var(--green-soft); }
+    .open-mark { width:24px; border:0; color:var(--faint); background:transparent; font:18px/1 var(--serif); }
+    .provider.open .open-mark { transform:rotate(90deg); }
+    .accounts { display:none; border-top:1px solid var(--line); }
+    .provider.open .accounts { display:block; }
+    .account {
+      display:grid; grid-template-columns:minmax(170px,1.25fr) 92px minmax(180px,1fr) 112px;
+      gap:10px; align-items:center; min-height:70px; padding:9px 7px 9px 42px;
+      border-bottom:1px solid var(--line); background:rgba(255,255,255,.18);
+    }
+    .account:last-child { border-bottom:0; }
+    .provider.off .account { opacity:.48; }
+    .account-id strong { display:block; font:600 12px var(--serif); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .account-id small { display:block; color:var(--muted); font:9.5px/1.5 var(--mono); }
+    .result-stamp {
+      justify-self:start; padding:3px 8px; border:1.5px solid var(--red); color:var(--red);
+      font:600 10px var(--serif); transform:rotate(-2deg);
+    }
+    .result-stamp.good { border-color:var(--green); color:var(--green); }
+    .result-stamp.muted { border-color:var(--line-dark); color:var(--muted); transform:none; }
+    .quota { min-width:0; }
+    .quota-line { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+    .quota-line strong { font:700 11px var(--mono); white-space:nowrap; }
+    .quota-line small { color:var(--muted); font:9px var(--mono); white-space:nowrap; }
+    .quota svg { display:block; width:100%; height:22px; margin-top:2px; overflow:visible; }
+    .quota .rule { stroke:#d8cab4; stroke-width:1; }
+    .quota .trend { fill:none; stroke:var(--red); stroke-width:1.5; vector-effect:non-scaling-stroke; stroke-dasharray:220; stroke-dashoffset:220; animation:draw 1.1s .2s forwards ease-out; }
+    .quota .point { fill:var(--red); }
+    .account-switches { display:flex; gap:6px; }
+    .ink-toggle {
+      width:49px; min-height:42px; padding:4px 2px; border:1.5px solid var(--line-dark); border-radius:0;
+      color:var(--muted); background:transparent; font:600 9px/1.2 var(--sans);
+    }
+    .ink-toggle span { display:block; font:600 16px/1 var(--serif); margin-bottom:2px; }
+    .ink-toggle[aria-pressed="true"]:first-child { color:var(--red); border-color:var(--red); background:var(--red-soft); box-shadow:inset 0 0 0 2px rgba(169,50,37,.08); }
+    .ink-toggle[aria-pressed="true"]:last-child { color:var(--green); border-color:var(--green); background:var(--green-soft); box-shadow:inset 0 0 0 2px rgba(78,116,91,.08); }
+    .ink-toggle:disabled { opacity:.38; cursor:not-allowed; }
+    .side { position:sticky; top:18px; }
+    .side-block { border-top:2px solid var(--ink); padding:9px 2px 12px; }
+    .side-title { display:flex; align-items:baseline; justify-content:space-between; }
+    .side-title h2 { margin:0; font:600 16px var(--serif); }
+    .side-title span { color:var(--muted); font:9px var(--mono); }
+    .side-note { margin:7px 0 12px; color:var(--muted); font-size:10.5px; line-height:1.65; }
+    .register { border-left:2px solid var(--line); margin-left:9px; }
+    .register-event {
+      position:relative; padding:0 0 12px 17px;
+    }
+    .register-event:before {
+      content:""; position:absolute; left:-4px; top:7px; width:6px; height:6px; border-radius:50%;
+      background:var(--green); box-shadow:0 0 0 3px var(--paper);
+    }
+    .register-event.warn:before { background:var(--amber); }
+    .register-event.queue:before { background:var(--red); }
+    .register-event time { color:var(--muted); font:9px var(--mono); }
+    .register-event strong { display:block; margin-top:1px; font:600 10.5px var(--sans); line-height:1.4; }
+    .register-event span { display:block; color:var(--muted); font-size:9.5px; line-height:1.4; }
+    .period-box {
+      margin-top:10px; padding:10px 11px; border:1px solid var(--line); background:rgba(255,255,255,.2);
+    }
+    .period-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:3px; margin-top:8px; }
+    .period-grid i { height:22px; border:1px solid var(--line); background:var(--paper-2); }
+    .period-grid i.done { border-color:var(--green); background:var(--green-soft); }
+    .period-grid i.err { border-color:var(--amber); background:#f0e4c9; }
+    .period-box strong { display:block; font:600 12px var(--sans); }
+    .period-box small { color:var(--muted); font-size:9.5px; }
+    .side-foot { margin-top:13px; color:var(--faint); font:9px/1.55 var(--mono); }
+    .toast {
+      position:fixed; left:50%; bottom:20px; z-index:80; transform:translate(-50%,16px);
+      max-width:calc(100% - 28px); padding:10px 15px; border:1px solid var(--ink);
+      color:var(--paper-2); background:var(--ink); font:11px/1.5 var(--mono);
+      opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+    @keyframes draw { to { stroke-dashoffset:0; } }
+    @media (prefers-reduced-motion:reduce) { *, *:before, *:after { animation:none !important; transition:none !important; } }
+    @media (max-width:1000px) {
+      .main-grid { grid-template-columns:1fr; }
+      .side { position:static; }
+      .side-block { padding-bottom:20px; }
+      .register { display:grid; grid-template-columns:1fr 1fr; gap:0 18px; }
+    }
+    @media (max-width:720px) {
+      .book { grid-template-columns:26px minmax(0,1fr); }
+      .binding-mark { top:10px; }
+      .binding-mark .logo { width:22px; height:34px; font-size:9px; }
+      .binding-mark .thread, .binding-mark .folio { display:none; }
+      .sheet { width:calc(100% - 20px); padding-top:14px; }
+      .doc-head { grid-template-columns:1fr; }
+      .doc-number { justify-content:flex-end; }
+      .schedule-top { grid-template-columns:1fr; gap:7px; }
+      .schedule-actions { display:grid; grid-template-columns:repeat(3,1fr); }
+      .stamp-button { min-height:42px; }
+      .schedule .master { width:100%; height:38px; }
+      .provider-row { grid-template-columns:32px minmax(0,1fr) 52px 24px; padding:8px 4px; }
+      .provider-count, .status-word { display:none; }
+      .provider-power { grid-column:3; grid-row:1 / span 2; width:52px; }
+      .open-mark { grid-column:4; grid-row:1 / span 2; }
+      .account { grid-template-columns:1fr 1fr; padding:10px 4px 12px 40px; }
+      .account-id { grid-column:1 / -1; }
+      .result-stamp { align-self:center; }
+      .quota { grid-column:1 / -1; }
+      .account-switches { grid-column:2; grid-row:2; justify-self:end; }
+      .register { grid-template-columns:1fr; }
+    }
+    .doc-sub, .side-note { font-size:14px; }
+    .kicker, .folio-no, .schedule-title, .schedule-set, .schedule-next, .schedule .master,
+    .stamp-button, .ledger-head, .provider-name small, .provider-count, .status-word,
+    .provider-power, .account-id small, .result-stamp, .quota-line strong, .quota-line small,
+    .ink-toggle, .side-title span, .register-event time, .register-event strong,
+    .register-event span, .period-box small, .side-foot, .toast { font-size:12px; }
+    .stamp-button.green, .provider-power[aria-pressed="true"] { color:#2b4934; }
+    .kicker { font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="book">
+    <aside class="binding" aria-hidden="true">
+      <div class="binding-mark">
+        <div class="logo">额度账</div>
+        <div class="thread"></div>
+        <div class="folio">QK · 二〇二六</div>
+      </div>
+    </aside>
+    <main class="sheet">
+      <header class="doc-head">
+        <div>
+          <div class="kicker">QUOTA KEEPALIVE / DAILY LEDGER</div>
+          <h1>额度账页</h1>
+          <p class="doc-sub">签到是收入，保活是支出。先把每个账号的两本小账分开记清楚。</p>
+        </div>
+        <div class="doc-number">
+          <div class="folio-no">本日账号<b>12</b>8 个供应商</div>
+          <div class="seal date">10<br>30<br>北京</div>
+        </div>
+      </header>
+
+      <section class="schedule" aria-label="统一调度">
+        <div class="schedule-top">
+          <div class="schedule-title">统一调度簿<small id="master-copy">ENABLED</small></div>
+          <div class="schedule-set">
+            <label for="every">每</label>
+            <input id="every" type="number" min="1" max="24" value="1" inputmode="numeric">
+            <select id="unit" aria-label="时间单位"><option value="hour">小时</option><option value="minute">分钟</option></select>
+            <span>巡一次</span>
+            <span class="schedule-next">下次<b id="next">11:18</b></span>
+          </div>
+          <div class="schedule-actions">
+            <button class="master" id="master" type="button" aria-pressed="true">启用</button>
+            <button class="stamp-button" id="detect" type="button">一键检测</button>
+            <button class="stamp-button red" id="checkin" type="button">全部签到</button>
+            <button class="stamp-button green" id="keepalive" type="button">全部保活</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="main-grid">
+        <section>
+          <div class="ledger-head"><strong>供应商账页</strong><span id="roster-count">8 个供应商 · 12 个账号 · 点击行首展开</span></div>
+          <div class="ledger" id="ledger"></div>
+        </section>
+
+        <aside class="side">
+          <section class="side-block">
+            <div class="side-title"><h2>今日执行簿</h2><span id="event-count">6 条</span></div>
+            <p class="side-note">记录签到与保活的真实结果；原型操作会进入“待执行”演示队列，不发送请求。</p>
+            <div class="register" id="register"></div>
+            <div class="period-box">
+              <strong>12 个账号 · 7 个已签</strong>
+              <small>绿色为服务端确认，黄色为待处理</small>
+              <div class="period-grid" aria-hidden="true">
+                <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="err"></i><i class="err"></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <p class="side-foot">额度轨迹取最近 12 次采样。单次采样只画一个端点，不推测涨跌。</p>
+          </section>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const providers = [
+      {id:"workbuddy-ai",name:"WorkBuddy AI",icon:"wbai",enabled:false,checkin:false,keepalive:false,model:"Hy3",accounts:[
+        {label:"yu***@gmail.com",result:"none",quota:"100 / 100",note:"仅展示",history:[100,99.97,99.97,99.97,77.14,32.15,0,0]}
+      ]},
+      {id:"workbuddy",name:"WorkBuddy",icon:"wb",enabled:true,checkin:true,keepalive:true,model:"Hy3",accounts:[
+        {label:"睡懒觉的薛定谔",result:"claimed",quota:"1012.84 / 3511",note:"+100 · 连续 20 天",history:[70.97,70.87,70.69,70.62,70.55,70.48,70.42,70.42,70.31,70.31,71.15,71.15]},
+        {label:"189****7198",result:"claimed",quota:"0 / 2200",note:"+100 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"zcode",name:"ZCode",icon:"zcode",enabled:true,checkin:true,keepalive:false,model:"GLM-5.3",accounts:[
+        {label:"ZCode",result:"none",quota:"1599 / 2000",note:"周额度 1599 / 10000",history:[44.2,88.84,67.9,79.28,24.85,84.97,21,84.2,20.05,84.01,20.05,84.01]}
+      ]},
+      {id:"qoder-cn",name:"Qoder CN",icon:"qoder",enabled:true,checkin:true,keepalive:false,model:"Qwen3.8-Flash",accounts:[
+        {label:"019f06b7-9...3e6b1f",result:"done",quota:"400 / 400",note:"服务端确认",history:[100,100,90.2,60,35.8,9.6,0,0,20,20,25,25]}
+      ]},
+      {id:"opencode-zen-free",name:"OpenCode Zen Free",icon:"zen",enabled:false,checkin:false,keepalive:false,model:"Big Pickle",accounts:[
+        {label:"account-1",result:"none",quota:"额度待检测",note:"仅展示",history:[]}
+      ]},
+      {id:"trae-cn",name:"Trae CN",icon:"trae",enabled:true,checkin:true,keepalive:false,model:"Seed-2.1-Turbo",accounts:[
+        {label:"用户1029134478",result:"ineligible",quota:"额度待检测",note:"设备校验不符合条件",history:[37.75,34.77,31.59,26.28,21.51,15.99,13.91,10.75,5.27,3.07,0,0]},
+        {label:"用户2507796751",result:"ineligible",quota:"223.1 / 2500",note:"稍后再试 (9074)",history:[96.04,95.75,95.42,95.17,94.86,94.53,94.13,92.88,92.28,91.19,91.08,91.08]}
+      ]},
+      {id:"minimax-code",name:"MiniMax Code",icon:"minimax",enabled:true,checkin:true,keepalive:false,model:"M3.1-Flash",accounts:[
+        {label:"MiniMax857156",result:"claimed",quota:"0.08 / 800",note:"+400 · 连续 2 天",history:[99.98,99.99]},
+        {label:"MiniMax687749",result:"claimed",quota:"0 / 800",note:"+400 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"codearts",name:"CodeArts",icon:"codearts",enabled:true,checkin:true,keepalive:false,model:"DeepSeek-V4.1-Flash",accounts:[
+        {label:"iam::49b62...749283",result:"claimed",quota:"615 / 4700",note:"+100 积分",history:[96.11,95.17,94.31,93.36,92,90.96,90.16,89.44,88.49,87.82,87.35,86.92]},
+        {label:"iam::01a18...284743",result:"claimed",quota:"0 / 4700 · 200 即将过期",note:"+100 积分",history:[100,100]}
+      ]}
+    ];
+    const icons = {
+      wbai:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#2563EB"/><path d="M16 5.5l2.9 7.6 7.6 2.9-7.6 2.9-2.9 7.6-2.9-7.6L5.5 16l7.6-2.9z" fill="#fff"/></svg>',
+      wb:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0EA371"/><path d="M5.5 16h5l3-8 4.5 16 3-8h5.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      zcode:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#171717"/><path d="M8.5 8.5h15l-9.4 11h9.4v4h-15l9.4-11H8.5z" fill="#fff"/></svg>',
+      qoder:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#F05A28"/><circle cx="15" cy="15" r="7.5" fill="none" stroke="#fff" stroke-width="3"/><path d="M18.5 19.5L24 25" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>',
+      zen:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#18181B"/><path d="M8 11l6 5-6 5" fill="none" stroke="#7CF7C4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 21h7" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/></svg>',
+      trae:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#111"/><path d="M7 9h18L7 23z" fill="#37E0B0"/><path d="M16 9h9v9z" fill="#fff"/></svg>',
+      minimax:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#E5482F"/><path d="M6 23V10l6 7 4-7 4 7 6-7v13" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      codearts:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#CF0A2C"/><path d="M23.5 10.5a9 9 0 100 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><path d="M14 13l5 3-5 3z" fill="#fff"/></svg>'
+    };
+    const resultLabel = {claimed:"已签",done:"已确认",ineligible:"未签",none:"待执行"};
+    const events = [
+      {time:"10:05",title:"检测完成",detail:"8 个供应商 · 12 个账号",tone:""},
+      {time:"09:34",title:"CodeArts 签到成功",detail:"2 / 2 · 服务端确认",tone:""},
+      {time:"09:34",title:"Qoder CN 签到成功",detail:"1 / 1 · 服务端确认",tone:""},
+      {time:"09:34",title:"Trae CN 未签到",detail:"2 个账号不符合设备条件",tone:"warn"},
+      {time:"07:43",title:"MiniMax Code 签到成功",detail:"2 / 2 · 各 +400",tone:""},
+      {time:"07:43",title:"WorkBuddy 签到成功",detail:"2 / 2 · 各 +100",tone:""}
+    ];
+    const $ = id => document.getElementById(id);
+    const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    function chart(history) {
+      if (!history.length) return `<svg viewBox="0 0 180 22" preserveAspectRatio="none"><line class="rule" x1="1" y1="18" x2="179" y2="18"/><text x="3" y="11" fill="#9b8f7d" font-size="8" font-family="serif">尚未留下额度记录</text></svg>`;
+      const min = Math.min(...history), max = Math.max(...history), span = max - min || 1;
+      const pts = history.map((v,i) => [3 + i / Math.max(1, history.length - 1) * 174, 18 - (v - min) / span * 15]);
+      const path = pts.map((p,i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+      const last = pts.at(-1);
+      return `<svg viewBox="0 0 180 22" preserveAspectRatio="none" aria-label="额度历史"><line class="rule" x1="1" y1="18" x2="179" y2="18"/><path class="trend" d="${path}"/><circle class="point" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2"/></svg>`;
+    }
+
+    function render() {
+      $("ledger").innerHTML = providers.map((p,pi) => {
+        const signed = p.accounts.filter(a => ["claimed","done"].includes(a.result)).length;
+        const warn = p.accounts.filter(a => a.result === "ineligible").length;
+        return `<section class="provider ${pi===1?"open":""} ${p.enabled?"":"off"}" data-provider="${p.id}">
+          <div class="provider-row">
+            <span class="provider-icon">${icons[p.icon]}</span>
+            <div class="provider-name"><strong>${esc(p.name)}</strong><small>${p.accounts.length} 个账号 · ${p.keepalive?"签到 + 保活":p.checkin?"签到":"仅展示"} · ${esc(p.model)}</small></div>
+            <div class="provider-count"><b>${signed}/${p.accounts.length}</b>${warn?`${warn} 个需处理`:"服务端已确认"}</div>
+            <div class="status-word ${warn?"warn":signed?"ok":""}">${warn?"待处理":signed?"已入账":"待执行"}</div>
+            <button class="provider-power" type="button" aria-pressed="${p.enabled}">${p.enabled?"启用":"停用"}</button>
+            <button class="open-mark" type="button" aria-label="展开账号">›</button>
+          </div>
+          <div class="accounts">
+            ${p.accounts.map((a,ai) => `<div class="account">
+              <div class="account-id"><strong>${esc(a.label)}</strong><small>账号 ${ai+1} · ${esc(a.note)}</small></div>
+              <span class="result-stamp ${["claimed","done"].includes(a.result)?"good":a.result==="ineligible"?"":"muted"}">${resultLabel[a.result]}</span>
+              <div class="quota"><div class="quota-line"><strong>${esc(a.quota)}</strong><small>${a.history.length>1?"最近 12 次":"单次采样"}</small></div>${chart(a.history)}</div>
+              <div class="account-switches">
+                <button class="ink-toggle checkin-toggle" type="button" data-account="${pi}-${ai}" aria-pressed="${a.checkinEnabled!==false&&p.checkin}" ${p.checkin?"":"disabled"}><span>签</span><b>${a.checkinEnabled!==false&&p.checkin?"已开":"已关"}</b></button>
+                <button class="ink-toggle keepalive-toggle" type="button" data-account="${pi}-${ai}" aria-pressed="${a.keepaliveEnabled===true}" ${p.keepalive?"":"disabled"}><span>活</span><b>${a.keepaliveEnabled===true?"已开":"已关"}</b></button>
+              </div>
+            </div>`).join("")}
+          </div>
+        </section>`;
+      }).join("");
+      renderEvents();
+      updateNext();
+    }
+
+    function renderEvents() {
+      $("register").innerHTML = events.slice(0,7).map(e => `<div class="register-event ${e.tone||""}"><time>${esc(e.time)}</time><strong>${esc(e.title)}</strong><span>${esc(e.detail)}</span></div>`).join("");
+      $("event-count").textContent = `${events.length} 条`;
+    }
+
+    function updateNext() {
+      const value = Math.max(1, Math.min(24, Number($("every").value) || 1));
+      const unit = $("unit").value;
+      const at = new Date(Date.now() + (unit==="hour"?3600000:60000) * value);
+      $("next").textContent = new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(at);
+    }
+
+    function timeNow() {
+      return new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
+    }
+
+    function addEvent(title, detail, tone="") {
+      events.unshift({time:timeNow(), title, detail, tone});
+      renderEvents();
+    }
+
+    let toastTimer = 0;
+    function toast(message) {
+      const box = $("toast");
+      box.textContent = message;
+      box.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=>box.classList.remove("show"), 3000);
+    }
+
+    $("ledger").addEventListener("click", event => {
+      const provider = event.target.closest(".provider");
+      const index = providers.findIndex(p => p.id === provider?.dataset.provider);
+      if (!provider || index < 0) return;
+      if (event.target.closest(".open-mark")) {
+        provider.classList.toggle("open");
+        return;
+      }
+      if (event.target.closest(".provider-power")) {
+        providers[index].enabled = !providers[index].enabled;
+        provider.classList.toggle("off", !providers[index].enabled);
+        const button = event.target.closest(".provider-power");
+        button.setAttribute("aria-pressed", String(providers[index].enabled));
+        button.textContent = providers[index].enabled ? "启用" : "停用";
+        addEvent(`${providers[index].name} 总开关`, providers[index].enabled ? "已启用" : "已停用", providers[index].enabled ? "" : "warn");
+        return;
+      }
+      const toggle = event.target.closest(".ink-toggle");
+      if (!toggle) return;
+      if (!providers[index].enabled) {
+        toast("请先启用该供应商。");
+        return;
+      }
+      const [pi,ai] = toggle.dataset.account.split("-").map(Number);
+      const account = providers[pi].accounts[ai];
+      const isCheckin = toggle.classList.contains("checkin-toggle");
+      const key = isCheckin ? "checkinEnabled" : "keepaliveEnabled";
+      const current = isCheckin ? account.checkinEnabled !== false : account.keepaliveEnabled === true;
+      account[key] = !current;
+      toggle.setAttribute("aria-pressed", String(!current));
+      toggle.querySelector("b").textContent = !current ? "已开" : "已关";
+      addEvent(`${providers[pi].name} · ${account.label}`, `${isCheckin?"签到":"保活"}${!current?"开启":"关闭"}`, !current ? "" : "warn");
+    });
+
+    $("master").addEventListener("click", event => {
+      const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
+      event.currentTarget.setAttribute("aria-pressed", String(on));
+      event.currentTarget.textContent = on ? "启用" : "停用";
+      $("master-copy").textContent = on ? "ENABLED" : "DISABLED";
+      addEvent(`统一调度${on?"启用":"停用"}`, on ? "按设定间隔执行" : "暂停自动执行", on ? "" : "warn");
+    });
+    $("every").addEventListener("input", updateNext);
+    $("unit").addEventListener("change", updateNext);
+    $("detect").addEventListener("click", () => {
+      addEvent("一键检测已加入演示队列", "原型演示 · 未发送真实请求", "queue");
+      toast("一键检测：原型已记录操作，未连接后台。");
+    });
+    $("checkin").addEventListener("click", () => {
+      addEvent("全部签到已加入演示队列", "原型演示 · 未发送真实请求", "queue");
+      toast("全部签到：原型已记录操作，未连接后台。");
+    });
+    $("keepalive").addEventListener("click", () => {
+      addEvent("全部保活已加入演示队列", "真实请求可能消耗积分，原型不会执行", "queue");
+      toast("全部保活：原型已记录操作，未发送真实请求。");
+    });
+    render();
+  </script>
+</body>
+</html>

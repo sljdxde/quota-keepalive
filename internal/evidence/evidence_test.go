@@ -89,3 +89,10 @@ func TestEvidenceContainsNoSensitiveFields(t *testing.T) {
 		t.Errorf("证据不得含凭据/敏感参数，实际 %s", out)
 	}
 }
+
+func TestInvalidEndpointIsRedacted(t *testing.T) {
+	chain := Sanitize(Chain{Observed: []ObservedFact{{Endpoint: "https://example.com/%zz"}}})
+	if got := chain.Observed[0].Endpoint; got != "REDACTED" {
+		t.Fatalf("无法解析的端点应完全脱敏，实际 %q", got)
+	}
+}

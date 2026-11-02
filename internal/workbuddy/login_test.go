@@ -254,7 +254,7 @@ func TestBrowserLoginRunsReadOnlyVerifierBeforePublishingVerifiedState(t *testin
 	defer target.Close()
 
 	verifier := &fakeVerifier{outcomes: []VerificationOutcome{{
-		Status: LoginVerified, Message: "只读验证通过，已添加账号；首次发现默认停用",
+		Status: LoginVerified, Message: "只读验证通过，已添加并启用账号",
 	}}}
 	svc := NewLoginService(LoginConfig{
 		BaseURL: target.URL, PendingStore: newMemoryPendingStore(),
@@ -316,7 +316,7 @@ func TestBrowserLoginRetryableVerificationReusesPendingCredential(t *testing.T) 
 
 	verifier := &fakeVerifier{outcomes: []VerificationOutcome{
 		{Status: LoginRetryable, Message: "无法完成只读验证，请检查网络后重试；未创建账号"},
-		{Status: LoginVerified, Message: "只读验证通过，已添加账号；首次发现默认停用"},
+		{Status: LoginVerified, Message: "只读验证通过，已添加并启用账号"},
 	}}
 	svc := NewLoginService(LoginConfig{
 		BaseURL: target.URL, PendingStore: newMemoryPendingStore(),

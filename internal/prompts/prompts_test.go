@@ -64,3 +64,23 @@ func TestExplainTodayResultsIncludesOwnAppFallback(t *testing.T) {
 		t.Errorf("今日结果说明必须区分应用内签到兜底，实际 %s", msgs[0].Content)
 	}
 }
+
+func TestInstallGuideIncludesPairing(t *testing.T) {
+	msgs, err := Render("install_and_pair", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msgs[0].Content, "一次性配对") {
+		t.Fatalf("安装引导应包含配对步骤，实际 %q", msgs[0].Content)
+	}
+}
+
+func TestDiagnoseGuideHandlesOptionalTarget(t *testing.T) {
+	msgs, err := Render("diagnose_failed_account", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msgs[0].Content, "doctor_run") {
+		t.Fatalf("诊断引导应包含诊断工具，实际 %q", msgs[0].Content)
+	}
+}

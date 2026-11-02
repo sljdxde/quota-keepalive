@@ -14,7 +14,10 @@ type HealthReport struct {
 	Checks        map[string]string `json:"checks"`
 }
 
-var healthTables = []string{"accounts", "sources", "daily_ops", "logs"}
+var healthTables = []string{
+	"accounts", "sources", "account_task_preferences", "daily_ops", "logs",
+	"provider_account_identities",
+}
 
 // HealthCheck 验证迁移版本、完整性与关键表是否可查询。
 func (s *Store) HealthCheck(ctx context.Context) (HealthReport, error) {

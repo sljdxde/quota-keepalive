@@ -3,11 +3,69 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"qka/internal/mcp"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read") }
+
+func TestBridgeSkipsBlankAndReportsWriteFailure(t *testing.T) {
+	writeErr := errors.New("write")
+	err := Run(context.Background(), Config{
+		In: strings.NewReader("\n \n"), Out: failingWriter{err: writeErr},
+		Endpoint: "http://127.0.0.1:1", HTTPClient: http.DefaultClient,
+	})
+	if err != nil {
+		t.Fatalf("仅空行不应触发网络或写入，实际 %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	err = Run(context.Background(), Config{
+		In: strings.NewReader("{}\n"), Out: failingWriter{err: writeErr},
+		Endpoint: server.URL,
+	})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("写响应失败应原样返回，实际 %v", err)
+	}
+}
+
+func TestBridgeForwardFailures(t *testing.T) {
+	if _, err := forward(context.Background(), http.DefaultClient, "://bad", "", "", []byte("{}"), 10); err == nil {
+		t.Fatal("非法 endpoint 应失败")
+	}
+	networkErr := errors.New("network")
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, networkErr
+	})}
+	if _, err := forward(context.Background(), client, "http://example.test", "", "", []byte("{}"), 10); !errors.Is(err, networkErr) {
+		t.Fatalf("HTTP client 错误应原样返回，实际 %v", err)
+	}
+	client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{Body: io.NopCloser(errorReader{}), StatusCode: 200}, nil
+	})}
+	if _, err := forward(context.Background(), client, "http://example.test", "", "", []byte("{}"), 10); err == nil {
+		t.Fatal("响应体读取失败应返回错误")
+	}
+}
 
 func startBackend(t *testing.T) string {
 	t.Helper()

@@ -95,7 +95,10 @@ func (s *ManagedSession) DoAllowUnauthorized(ctx context.Context, req *http.Requ
 // MarkReauthRequired records that a separate read-only probe proved the
 // managed source's login is invalid.
 func (s *ManagedSession) MarkReauthRequired(ctx context.Context) error {
-	return s.reauth(ctx, "只读探测返回未授权")
+	if s.store == nil {
+		return errors.New("凭据存储不可用")
+	}
+	return s.store.MarkReauthRequired(ctx)
 }
 
 func (s *ManagedSession) do(
@@ -182,15 +185,9 @@ func (s *ManagedSession) refresh(ctx context.Context, observed PendingCredential
 		if errors.Is(err, ErrManagedReauthRequired) {
 			return PendingCredential{}, s.reauth(ctx, "刷新凭据被拒绝")
 		}
-		if errors.Is(err, ErrManagedRetryable) {
-			return PendingCredential{}, err
-		}
-		return PendingCredential{}, fmt.Errorf("%w: %v", ErrManagedRetryable, err)
+		return PendingCredential{}, err
 	}
-	raw, err := json.Marshal(next)
-	if err != nil {
-		return PendingCredential{}, s.reauth(ctx, "无法保存刷新结果")
-	}
+	raw, _ := json.Marshal(next)
 	if err := s.store.Save(ctx, raw); err != nil {
 		return PendingCredential{}, s.reauth(ctx, "无法安全保存刷新结果")
 	}

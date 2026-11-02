@@ -7,6 +7,16 @@ import (
 	"qka/internal/cli"
 )
 
+var (
+	runCLI      = cli.Run
+	defaultEnv  = cli.DefaultEnv
+	exitProcess = os.Exit
+)
+
 func main() {
-	os.Exit(cli.Run(context.Background(), cli.DefaultEnv()))
+	exitProcess(run(context.Background()))
+}
+
+func run(ctx context.Context) int {
+	return runCLI(ctx, defaultEnv())
 }

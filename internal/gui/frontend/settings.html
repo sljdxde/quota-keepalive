@@ -2,58 +2,644 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<script>
+  (function () {
+    var theme = new URLSearchParams(location.search).get("theme");
+    if (theme === "light" || theme === "dark") {
+      document.documentElement.dataset.theme = theme;
+    }
+  })();
+</script>
 <style>
-  body { font-family: -apple-system, sans-serif; margin: 0; padding: 16px; width: 360px; }
-  h1 { font-size: 15px; margin: 0 0 12px; }
-  label { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0;
-          border-top: 1px solid #eee; }
-  .desc { color: #888; font-size: 11px; margin-top: 2px; }
+  *, *::before, *::after {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f6;
+    --card: #ffffff;
+    --card-2: #f9f9fb;
+    --line: #e3e3e8;
+    --line-2: #ececf0;
+    --fg: #1c1c21;
+    --fg-2: #4b4b53;
+    --muted: #707079;
+    --red: #c33b3b;
+    --accent: #4f46e5;
+    --accent-soft: #eeedfd;
+    --faint: #9a9aa3;
+    --seg-track: #ececf0;
+    --seg-thumb: #ffffff;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  }
   @media (prefers-color-scheme: dark) {
-    body { background: #1e1e1e; color: #e6e6e6; }
-    label { border-top-color: #333; }
-    .desc { color: #999; }
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #1a1a1e;
+      --card: #232327;
+      --card-2: #1f1f23;
+      --line: #333339;
+      --line-2: #2c2c32;
+      --fg: #ededf1;
+      --fg-2: #b9b9c1;
+      --muted: #9a9aa3;
+      --red: #f28b82;
+      --accent: #a5b4fc;
+      --accent-soft: #2c2e4a;
+      --faint: #56565f;
+      --seg-track: rgba(255, 255, 255, .055);
+      --seg-thumb: rgba(255, 255, 255, .15);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1a1a1e; --card: #232327; --card-2: #1f1f23;
+    --line: #333339; --line-2: #2c2c32; --fg: #ededf1; --fg-2: #b9b9c1;
+    --muted: #9a9aa3; --red: #f28b82; --accent: #a5b4fc; --accent-soft: #2c2e4a;
+    --faint: #56565f; --seg-track: rgba(255,255,255,.055); --seg-thumb: rgba(255,255,255,.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    color: var(--fg);
+    background: var(--bg);
+    font: 400 13.5px/1.45 var(--font);
+    -webkit-font-smoothing: antialiased;
+    padding: 20px;
+  }
+  header {
+    display: flex; align-items: center; gap: 9px;
+    margin: 0 0 14px; padding-left: 76px; min-height: 28px;
+    --wails-draggable: drag;
+  }
+  .brand-tile {
+    width: 26px; height: 26px; border-radius: 8px; flex: none;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(120% 90% at 28% 12%, rgba(255,255,255,.20) 0%, rgba(255,255,255,0) 55%),
+      linear-gradient(145deg, #163a43 0%, #0c2a32 52%, #071a21 100%);
+    box-shadow:
+      0 2px 6px rgba(2,16,21,.35),
+      inset 0 .5px 0 rgba(255,255,255,.24),
+      inset 0 0 0 .5px rgba(236,202,139,.14);
+  }
+  .brand-tile svg { width: 19px; height: 19px; display: block; }
+  h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+  .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  #form {
+    overflow: hidden; border-radius: 12px; background: var(--card);
+    box-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(20,22,30,.06);
+  }
+  .row {
+    display: flex; align-items: center; gap: 11px;
+    min-height: 62px; padding: 13px 14px;
+    border-bottom: .5px solid var(--line-2);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row:hover { background: var(--card-2); }
+  .switch { position: relative; width: 34px; height: 20px; margin-left: auto; flex: none; }
+  .switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+  .switch::before {
+    content: ""; position: absolute; inset: 0; border-radius: 999px;
+    background: var(--faint); transition: background .15s ease;
+  }
+  .switch::after {
+    content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+    transition: transform .18s cubic-bezier(.23,1,.32,1);
+  }
+  .switch:has(input:checked)::before { background: var(--accent); }
+  .switch:has(input:checked)::after { transform: translateX(14px); }
+  .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
+  .copy { min-width: 0; flex: 1; }
+  .copy b { display: block; font-size: 13px; font-weight: 600; }
+  .desc { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  .select-row { align-items: center; }
+  .choice {
+    display: flex; flex: none; gap: 2px; padding: 3px;
+    border-radius: 8px; background: var(--seg-track);
+  }
+  .choice button {
+    height: 26px; padding: 0 9px; border: 0; border-radius: 6px;
+    color: var(--muted); background: transparent; font-size: 11.5px;
+  }
+  .choice button:hover { color: var(--fg); }
+  .choice button.active {
+    color: var(--fg); background: var(--seg-thumb);
+    box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.06);
+  }
+  .choice button:disabled { opacity: .55; }
+  .select-control-shell {
+    position: relative; display: inline-flex; flex: none;
+    width: 170px; max-width: 170px;
+  }
+  .select-control-shell::after {
+    content: ""; position: absolute; right: 11px; top: calc(50% - 3px);
+    width: 6px; height: 6px; pointer-events: none;
+    border-right: 1.25px solid var(--muted);
+    border-bottom: 1.25px solid var(--muted);
+    transform: rotate(45deg);
+  }
+  .select-control {
+    width: 100%; height: 29px; padding: 0 29px 0 10px;
+    border: 0; border-radius: 7px; appearance: none; -webkit-appearance: none;
+    color: var(--fg); background: var(--card);
+    box-shadow: inset 0 0 0 .5px var(--line);
+    font-size: 12px;
+  }
+  .select-control:hover {
+    background: var(--card-2);
+    box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--line) 64%, var(--fg) 36%);
+  }
+  .select-control:disabled { opacity: .55; }
+  .hint {
+    margin: 12px 0 0; padding: 9px 11px; border-radius: 9px;
+    color: var(--fg-2); background: var(--accent-soft);
+    font-size: 11.5px; line-height: 1.45;
+  }
+  .schedule-card {
+    margin-top: 14px; overflow: hidden; border-radius: 12px;
+    background: var(--card);
+    box-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(20,22,30,.06);
+  }
+  .schedule-head {
+    display: flex; align-items: center; gap: 9px;
+    padding: 12px 14px 10px;
+  }
+  .schedule-head .copy { flex: 1; min-width: 0; }
+  .schedule-head b { display: block; font-size: 13px; font-weight: 620; }
+  .schedule-head small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+  .sched-state {
+    display: inline-flex; align-items: center; gap: 5px;
+    min-height: 22px; padding: 1px 7px; border-radius: 6px;
+    color: var(--muted); background: var(--card-2);
+    box-shadow: inset 0 0 0 .5px var(--line);
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .sched-state.on { color: var(--accent); background: var(--accent-soft); box-shadow: none; }
+  .sched-state.warn { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); box-shadow: none; }
+  .schedule-status {
+    display: grid; grid-template-columns: 92px minmax(0, 1fr);
+    gap: 6px 10px; padding: 10px 14px 13px;
+    border-top: .5px solid var(--line-2);
+    color: var(--fg-2); font-size: 11.5px;
+  }
+  .schedule-status dt { color: var(--muted); }
+  .schedule-status dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+  .schedule-status .error { color: var(--red); }
+  .error { color: var(--red); }
+  @media (prefers-reduced-motion: reduce) {
+    .switch::before, .switch::after, .choice button { transition: none; }
   }
 </style>
 </head>
 <body>
-  <h1>设置</h1>
+  <header>
+    <span class="brand-tile" aria-hidden="true">
+      <svg viewBox="0 0 64 64">
+        <circle cx="30.5" cy="31" r="17.2" fill="none" stroke="#F8F1DE" stroke-width="7.4"
+                stroke-linecap="round" stroke-dasharray="88 21" transform="rotate(38 30.5 31)"/>
+        <path d="M34.5 36.5c5.3 4.4 10.2 9.2 19.5 18.3" fill="none"
+              stroke="#FFD06B" stroke-width="6.2" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <div>
+      <h1>设置</h1>
+      <p class="subtitle">Quota Keepalive 使用同一份声明式配置管理外观、启动与自动执行。</p>
+    </div>
+  </header>
   <div id="form"></div>
+  <section class="schedule-card" aria-labelledby="schedule-title">
+    <div class="schedule-head">
+      <div class="copy">
+        <b id="schedule-title">内置自动执行</b>
+        <small>由 Quota Keepalive 自己的系统任务调用 <code>task-run</code>，不依赖任何 Agent。</small>
+      </div>
+      <span class="sched-state" id="schedule-state">读取中</span>
+    </div>
+    <label class="row">
+      <span class="copy">
+        <b>启用内置自动执行</b>
+        <span class="desc">按下方间隔执行；开关会同步安装或删除系统任务。</span>
+      </span>
+      <span class="switch">
+        <input type="checkbox" id="schedule-toggle" aria-label="内置自动执行">
+      </span>
+    </label>
+    <label class="row select-row">
+      <span class="copy">
+        <b>执行间隔</b>
+        <span class="desc">系统任务按本机时间重复运行。</span>
+      </span>
+      <span class="select-control-shell">
+      <select class="select-control" id="schedule-interval" aria-label="执行间隔">
+        <option value="5">每 5 分钟</option>
+        <option value="10">每 10 分钟</option>
+        <option value="15">每 15 分钟</option>
+        <option value="30">每 30 分钟</option>
+        <option value="60">每小时</option>
+        <option value="120">每 2 小时</option>
+        <option value="360">每 6 小时</option>
+        <option value="720">每 12 小时</option>
+        <option value="1440">每天</option>
+        <option value="10080">每 7 天</option>
+      </select>
+      </span>
+    </label>
+    <label class="row select-row">
+      <span class="copy">
+        <b>执行内容</b>
+        <span class="desc">只运行选中的任务类型。</span>
+      </span>
+      <span class="select-control-shell">
+      <select class="select-control" id="schedule-action" aria-label="执行内容">
+        <option value="checkin">签到</option>
+      </select>
+      </span>
+    </label>
+    <dl class="schedule-status" id="schedule-status">
+      <dt>计划</dt><dd id="schedule-time">每 30 分钟（本机时间）</dd>
+      <dt>执行内容</dt><dd id="schedule-action-label">签到</dd>
+      <dt>下次执行</dt><dd id="schedule-next">—</dd>
+      <dt>上次结果</dt><dd id="schedule-last">尚未执行</dd>
+    </dl>
+  </section>
+  <section class="schedule-card" aria-labelledby="update-title">
+    <div class="schedule-head">
+      <div class="copy">
+        <b id="update-title">软件更新</b>
+        <small>只从 Quota Keepalive 官方 feed 下载，校验 SHA-256 后在退出时替换并重启。</small>
+      </div>
+      <span class="sched-state" id="update-state">读取中</span>
+    </div>
+    <dl class="schedule-status">
+      <dt>当前版本</dt><dd id="update-current">—</dd>
+      <dt>最新版本</dt><dd id="update-latest">尚未检查</dd>
+    </dl>
+    <div class="row select-row">
+      <span class="copy">
+        <b>安装更新</b>
+        <span class="desc" id="update-message">检查官方更新源后，可下载并自动安装。</span>
+      </span>
+      <span class="choice">
+        <button type="button" id="update-check">检查</button>
+        <button type="button" id="update-install" disabled>下载并安装</button>
+      </span>
+    </div>
+  </section>
+  <p class="hint">设置切换后立即保存；系统任务安装或删除失败时，会恢复为当前生效值。</p>
 
 <script type="module">
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
+  import { Events } from "/wails/runtime.js";
 
   function asJSON(v) {
     if (typeof v === "string") return JSON.parse(v);
     return v;
   }
 
+  function applyTheme(theme) {
+    if (theme === "light" || theme === "dark") {
+      document.documentElement.dataset.theme = theme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  function applyAppearance(values) {
+    applyTheme(values && values.theme ? values.theme : "system");
+    document.documentElement.dataset.background =
+      (values && values.background) || "mist";
+    document.documentElement.dataset.glass =
+      (values && values.glass) || "standard";
+  }
+
+  Events.On("theme-changed", function (event) {
+    applyTheme(event && event.data);
+  });
+  Events.On("appearance-changed", function (event) {
+    const change = event && event.data;
+    if (!change || !change.key) return;
+    document.documentElement.dataset[change.key] = change.value;
+  });
+
+  function copyBlock(f) {
+    const text = document.createElement("span");
+    text.className = "copy";
+    const title = document.createElement("b");
+    title.textContent = f.label;
+    const desc = document.createElement("span");
+    desc.className = "desc";
+    desc.textContent = f.description;
+    text.appendChild(title);
+    text.appendChild(desc);
+    return text;
+  }
+
+  function boolRow(f, value) {
+    const row = document.createElement("label");
+    row.className = "row";
+    row.appendChild(copyBlock(f));
+    const switchWrap = document.createElement("span");
+    switchWrap.className = "switch";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!value;
+    cb.setAttribute("aria-label", f.label);
+    switchWrap.appendChild(cb);
+    row.appendChild(switchWrap);
+    cb.onchange = async function () {
+      const next = cb.checked;
+      cb.disabled = true;
+      try {
+        await Bound.SettingsSet(f.key, next);
+      } catch (_) {
+        cb.checked = !next;
+      } finally {
+        cb.disabled = false;
+      }
+    };
+    return row;
+  }
+
+  function selectRow(f, value) {
+    const row = document.createElement("div");
+    row.className = "row select-row";
+    row.appendChild(copyBlock(f));
+    if ((f.options || []).length > 3) {
+      const select = document.createElement("select");
+      select.className = "select-control";
+      select.setAttribute("aria-label", f.label);
+      (f.options || []).forEach(function (option) {
+        const item = document.createElement("option");
+        item.value = option.value;
+        item.textContent = option.label;
+        select.appendChild(item);
+      });
+      let current = (f.options || []).some(function (option) {
+        return option.value === value;
+      }) ? value : f.default;
+      select.value = current;
+      select.onchange = async function () {
+        const next = select.value;
+        select.disabled = true;
+        try {
+          await Bound.SettingsSetString(f.key, next);
+          current = next;
+          if (f.key === "background" || f.key === "glass") {
+            document.documentElement.dataset[f.key] = next;
+          }
+        } catch (_) {
+          select.value = current;
+        } finally {
+          select.disabled = false;
+        }
+      };
+      const shell = document.createElement("span");
+      shell.className = "select-control-shell";
+      shell.appendChild(select);
+      row.appendChild(shell);
+      return row;
+    }
+    const group = document.createElement("div");
+    group.className = "choice";
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", f.label);
+    let current = f.options.some(function (option) { return option.value === value; })
+      ? value : f.default;
+    (f.options || []).forEach(function (option) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = option.label;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", option.value === current ? "true" : "false");
+      button.classList.toggle("active", option.value === current);
+      button.onclick = async function () {
+        if (option.value === current) return;
+        const previous = current;
+        group.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+        try {
+          await Bound.SettingsSetString(f.key, option.value);
+          current = option.value;
+          if (f.key === "theme") applyTheme(option.value);
+          if (f.key === "background" || f.key === "glass") {
+            document.documentElement.dataset[f.key] = option.value;
+          }
+          group.querySelectorAll("button").forEach(function (b) {
+            const active = b === button;
+            b.classList.toggle("active", active);
+            b.setAttribute("aria-checked", active ? "true" : "false");
+          });
+        } catch (_) {
+          current = previous;
+        } finally {
+          group.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
+        }
+      };
+      group.appendChild(button);
+    });
+    row.appendChild(group);
+    return row;
+  }
+
+  function scheduleState(view) {
+    if (!view.enabled) return { text: "已关闭", kind: "" };
+    if (!view.installed) return { text: "需要修复", kind: "warn" };
+    return { text: "已启用", kind: "on" };
+  }
+
+  function lastRunText(run) {
+    if (!run) return "尚未执行";
+    const result = {
+      success: "成功",
+      needs_attention: "需要处理",
+      failed: "失败",
+      disabled: "未启用",
+    }[run.result] || run.result;
+    const at = run.at ? run.at.replace("T", " ").slice(0, 16) : "";
+    return at + " · " + result + " · 成功 " + run.succeeded +
+      "，需处理 " + run.needs_attention;
+  }
+
+  function renderSchedule(view) {
+    const state = scheduleState(view);
+    const stateEl = document.getElementById("schedule-state");
+    stateEl.textContent = state.text;
+    stateEl.className = "sched-state" + (state.kind ? " " + state.kind : "");
+    const toggle = document.getElementById("schedule-toggle");
+    toggle.checked = !!view.enabled;
+    toggle.disabled = false;
+    document.getElementById("schedule-interval").value =
+      String(view.interval_minutes || 30);
+    document.getElementById("schedule-action").value = "checkin";
+    document.getElementById("schedule-time").textContent =
+      intervalText(view.interval_minutes) + "（本机时间）";
+    document.getElementById("schedule-action-label").textContent =
+      actionText(view.action);
+    document.getElementById("schedule-next").textContent = view.next_run || "—";
+    const last = document.getElementById("schedule-last");
+    last.textContent = lastRunText(view.last_run);
+    last.className = view.last_error ? "error" : "";
+    if (view.last_error) last.textContent += " · " + view.last_error;
+  }
+
+  function intervalText(minutes) {
+    const value = Number(minutes) || 30;
+    if (value >= 1440) return "每 " + Math.round(value / 1440) + " 天";
+    if (value >= 60) return "每 " + Math.round(value / 60) + " 小时";
+    return "每 " + value + " 分钟";
+  }
+
+  function actionText(action) {
+    return "签到";
+  }
+
+  async function saveScheduleConfig() {
+    const interval = document.getElementById("schedule-interval");
+    const action = document.getElementById("schedule-action");
+    interval.disabled = true;
+    action.disabled = true;
+    try {
+      renderSchedule(asJSON(await Bound.ScheduleSetConfig(
+        Number(interval.value), action.value)));
+      Events.Emit("schedule-changed");
+    } catch (err) {
+      const last = document.getElementById("schedule-last");
+      last.textContent = (err && err.message ? String(err.message) : "") ||
+        "自动执行设置保存失败；已恢复为当前生效值。";
+      last.className = "error";
+      await loadSchedule();
+    } finally {
+      interval.disabled = false;
+      action.disabled = false;
+    }
+  }
+
+  async function loadSchedule() {
+    try {
+      renderSchedule(asJSON(await Bound.ScheduleGet()));
+    } catch (_) {
+      const state = document.getElementById("schedule-state");
+      state.textContent = "读取失败";
+      state.className = "sched-state warn";
+      document.getElementById("schedule-last").textContent =
+        "无法读取系统调度状态，请重新打开设置窗口。";
+      document.getElementById("schedule-last").className = "error";
+    }
+  }
+
+  document.getElementById("schedule-toggle").onchange = async function () {
+    const control = this;
+    const enabled = control.checked;
+    control.disabled = true;
+    document.getElementById("schedule-state").textContent =
+      enabled ? "正在安装" : "正在移除";
+    try {
+      const view = asJSON(await Bound.ScheduleSetEnabled(enabled));
+      renderSchedule(view);
+      Events.Emit("schedule-changed");
+    } catch (err) {
+      control.checked = !enabled;
+      control.disabled = false;
+      const state = document.getElementById("schedule-state");
+      state.textContent = "操作失败";
+      state.className = "sched-state warn";
+      const last = document.getElementById("schedule-last");
+      last.textContent = (err && err.message ? String(err.message) : "") ||
+        "系统调度操作失败；已保持原状态。";
+      last.className = "error";
+    }
+  };
+  document.getElementById("schedule-interval").onchange = saveScheduleConfig;
+  document.getElementById("schedule-action").onchange = saveScheduleConfig;
+
+  let updateAvailable = false;
+
+  function renderUpdate(view) {
+    if (!view) return;
+    updateAvailable = !!view.available;
+    document.getElementById("update-current").textContent =
+      view.current_version || "dev";
+    document.getElementById("update-latest").textContent =
+      view.latest_version || "已是最新版本";
+    document.getElementById("update-message").textContent =
+      view.message || "检查官方更新源后，可下载并自动安装。";
+    const state = document.getElementById("update-state");
+    state.textContent = view.ready ? "安装已就绪" : view.available ? "发现更新" : "已检查";
+    state.className = "sched-state" + (view.ready ? " on" : "");
+    document.getElementById("update-install").disabled = !updateAvailable;
+  }
+
+  async function checkUpdate() {
+    const button = document.getElementById("update-check");
+    button.disabled = true;
+    document.getElementById("update-state").textContent = "检查中";
+    try {
+      renderUpdate(asJSON(await Bound.UpdateCheck()));
+    } catch (err) {
+      const state = document.getElementById("update-state");
+      state.textContent = "检查失败";
+      state.className = "sched-state warn";
+      document.getElementById("update-message").textContent =
+        (err && err.message ? String(err.message) : "") || "无法读取官方更新源。";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function installUpdate() {
+    const button = document.getElementById("update-install");
+    button.disabled = true;
+    document.getElementById("update-state").textContent = "下载中";
+    try {
+      const view = asJSON(await Bound.UpdateInstall());
+      renderUpdate(view);
+      document.getElementById("update-state").textContent = "正在重启";
+      document.getElementById("update-message").textContent = view.message ||
+        "更新已验证，Quota Keepalive 即将退出并自动重启。";
+    } catch (err) {
+      button.disabled = false;
+      const state = document.getElementById("update-state");
+      state.textContent = "安装失败";
+      state.className = "sched-state warn";
+      document.getElementById("update-message").textContent =
+        (err && err.message ? String(err.message) : "") || "更新下载或校验失败。";
+    }
+  }
+
+  document.getElementById("update-check").onclick = checkUpdate;
+  document.getElementById("update-install").onclick = installUpdate;
+
   async function init() {
     const schema = asJSON(await Bound.SettingsSchema());
     const values = asJSON(await Bound.SettingsGet());
     const form = document.getElementById("form");
+    applyAppearance(values);
 
-    // 表单完全由 schema 生成：新增开关只需在 schema 追加，无需改本文件。
+    // 表单完全由 schema 生成：新增开关或选项无需手写界面。
     schema.forEach(function (f) {
-      const label = document.createElement("label");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = !!values[f.key];
-      cb.onchange = function () {
-        Bound.SettingsSet(f.key, cb.checked);
-      };
-      const text = document.createElement("div");
-      text.textContent = f.label;
-      const desc = document.createElement("div");
-      desc.className = "desc";
-      desc.textContent = f.description;
-      text.appendChild(desc);
-      label.appendChild(cb);
-      label.appendChild(text);
-      form.appendChild(label);
+      if (f.type === "select") {
+        form.appendChild(selectRow(f, values[f.key]));
+      } else {
+        form.appendChild(boolRow(f, values[f.key]));
+      }
     });
+    await loadSchedule();
+    checkUpdate();
   }
 
-  init();
+  init().catch(function () {
+    document.getElementById("form").innerHTML =
+      '<div class="row"><span class="copy"><b class="error">无法读取设置</b>' +
+      '<span class="desc">请关闭后重新打开设置窗口。</span></span></div>';
+  });
 </script>
 </body>
 </html>

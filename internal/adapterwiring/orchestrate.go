@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"qka/internal/adapterhost"
 	"qka/internal/engine"
 )
 
 // CheckinExecutor 把适配器 checkin.run 适配为引擎 Executor。
-func CheckinExecutor(host *adapterhost.Host) engine.Executor {
+func CheckinExecutor(host HostLike) engine.Executor {
 	return func(ctx context.Context, key engine.Key) (engine.ExternalResult, error) {
 		result, err := host.CallWith(ctx, "checkin.run",
 			map[string]any{"accountId": key.AccountID})

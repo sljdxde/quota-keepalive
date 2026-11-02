@@ -64,7 +64,7 @@ func TestDiscoverUpsertsAccountsAndSources(t *testing.T) {
 	}
 }
 
-func TestDiscoverDefaultsNewAccountsDisabledAndPreservesExistingState(t *testing.T) {
+func TestDiscoverEnablesNewHealthyAccountsAndPreservesExistingState(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()
 	if err := svc.Discover(ctx, "qoder-cn", discovered()); err != nil {
@@ -76,12 +76,12 @@ func TestDiscoverDefaultsNewAccountsDisabledAndPreservesExistingState(t *testing
 		t.Fatal(err)
 	}
 	for _, acc := range list {
-		if acc.Enabled {
-			t.Fatalf("首次发现账号默认应停用，实际 %+v", acc)
+		if !acc.Enabled {
+			t.Fatalf("首次发现的健康账号应自动启用，实际 %+v", acc)
 		}
 	}
 
-	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); err != nil {
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.PinSource(ctx, "qoder-cn", "q_1", "qs_1", true); err != nil {
@@ -98,14 +98,24 @@ func TestDiscoverDefaultsNewAccountsDisabledAndPreservesExistingState(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !acc.Enabled {
+	if acc.Enabled {
 		t.Error("重复发现不得改写已有账号的启用状态")
 	}
 	if len(acc.Sources) != 1 || !acc.Sources[0].Pinned {
 		t.Errorf("重复发现不得改写已有来源固定状态: %+v", acc.Sources)
 	}
+	if acc.Sources[0].Health != HealthReauthRequired {
+		t.Errorf("未完成只读验证前不得清除重登状态，实际 %s", acc.Sources[0].Health)
+	}
+	if err := svc.MarkSourceHealthy(ctx, "qoder-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+	acc, err = svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if acc.Sources[0].Health != HealthHealthy {
-		t.Errorf("重复验证成功应把同一来源恢复为健康，实际 %s", acc.Sources[0].Health)
+		t.Errorf("显式验证成功应恢复来源健康，实际 %s", acc.Sources[0].Health)
 	}
 }
 
@@ -124,6 +134,9 @@ func TestDiscoverPreservesReportedSourceHealth(t *testing.T) {
 	}
 	if len(acc.Sources) != 1 || acc.Sources[0].Health != HealthReauthRequired {
 		t.Fatalf("发现结果应保留来源健康状态，实际 %+v", acc.Sources)
+	}
+	if acc.Enabled {
+		t.Fatal("来源待重登的新账号不得自动启用")
 	}
 	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", true); !errors.Is(err, ErrNoHealthySource) {
 		t.Fatalf("待重登来源不得启用账号，实际 %v", err)
@@ -223,10 +236,72 @@ func TestSetEnabled(t *testing.T) {
 	}
 }
 
+func TestTaskPreferencesDefaultEnabledAndPersist(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+
+	prefs, err := svc.TaskPreferences(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prefs) != 0 {
+		t.Fatalf("未设置时不应伪造行，实际 %+v", prefs)
+	}
+
+	if err := svc.SetTaskEnabled(ctx, "qoder-cn", "q_1", "keepalive", false); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err = svc.TaskPreferences(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefs["keepalive"] {
+		t.Fatalf("保活偏好应持久化为停用，实际 %+v", prefs)
+	}
+
+	if err := svc.SetTaskEnabled(ctx, "qoder-cn", "q_1", "keepalive", true); err != nil {
+		t.Fatal(err)
+	}
+	prefs, _ = svc.TaskPreferences(ctx, "qoder-cn", "q_1")
+	if !prefs["keepalive"] {
+		t.Fatalf("保活偏好应可恢复启用，实际 %+v", prefs)
+	}
+}
+
+func TestTaskPreferencesAreDeletedWithAccount(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTaskEnabled(ctx, "qoder-cn", "q_1", "checkin", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, "qoder-cn", "q_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := svc.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM account_task_preferences
+WHERE target = 'qoder-cn' AND account_id = 'q_1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("删除账号应级联清理任务偏好，实际 %d 行", count)
+	}
+}
+
 func TestEnableRequiresHealthySource(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()
 	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetEnabled(ctx, "qoder-cn", "q_1", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.MarkSourceFailure(ctx, "qoder-cn", "q_1", "qs_1"); err != nil {
@@ -423,5 +498,63 @@ func TestFailureIsolatedPerAccount(t *testing.T) {
 	acc2, _ := svc.Get(ctx, "qoder-cn", "q_2")
 	if acc2.Sources[0].Health != HealthHealthy {
 		t.Error("一个账号失败不应波及其他账号")
+	}
+}
+
+func TestRemoveSourceKeepsAccountUntilLastSourceDisappears(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ImportSource(ctx, "qoder-cn", "q_1", "imported"); err != nil {
+		t.Fatal(err)
+	}
+	deleter := &recordedCredentialDeletion{}
+	svc.SetManagedCredentialDeleter(deleter)
+
+	if err := svc.RemoveSource(ctx, "qoder-cn", "q_1", "qs_1"); err != nil {
+		t.Fatal(err)
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acc.Sources) != 1 || acc.Sources[0].ID != "imported" {
+		t.Fatalf("其余来源应保留: %+v", acc.Sources)
+	}
+	if !slices.Equal(deleter.sources, []string{"qs_1"}) {
+		t.Fatalf("应只清理被移除来源的受管凭据: %v", deleter.sources)
+	}
+
+	if err := svc.RemoveSource(ctx, "qoder-cn", "q_1", "imported"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Get(ctx, "qoder-cn", "q_1"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("最后一个来源移除后账号应删除: %v", err)
+	}
+	if !slices.Equal(deleter.sources, []string{"qs_1"}) {
+		t.Fatalf("导入来源不得清理受管凭据: %v", deleter.sources)
+	}
+	if err := svc.RemoveSource(ctx, "qoder-cn", "missing", "missing"); err != nil {
+		t.Fatalf("重复移除应幂等: %v", err)
+	}
+}
+
+func TestRemoveSourceKeepsProjectionWhenCredentialCleanupFails(t *testing.T) {
+	svc := newService(t)
+	ctx := context.Background()
+	if err := svc.Discover(ctx, "qoder-cn", discovered()[:1]); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetManagedCredentialDeleter(&recordedCredentialDeletion{
+		err: errors.New("credential backend unavailable"),
+	})
+	if err := svc.RemoveSource(ctx, "qoder-cn", "q_1", "qs_1"); err == nil {
+		t.Fatal("凭据清理失败时应报错")
+	}
+	acc, err := svc.Get(ctx, "qoder-cn", "q_1")
+	if err != nil || len(acc.Sources) != 1 {
+		t.Fatalf("清理失败时来源必须保留: %+v %v", acc.Sources, err)
 	}
 }

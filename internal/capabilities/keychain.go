@@ -3,10 +3,12 @@ package capabilities
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"unicode/utf8"
 )
 
 // execResult 是一次外部命令的结果（含退出码，便于测试模拟）。
@@ -75,7 +77,7 @@ func (k *KeychainStore) Get(ctx context.Context, service, account string) (strin
 		return "", err
 	}
 	if r.exitCode == 0 {
-		return strings.TrimRight(string(r.stdout), "\n"), nil
+		return decodeKeychainPassword(r.stdout), nil
 	}
 	if r.exitCode == 44 {
 		return "", ErrSecretNotFound
@@ -84,6 +86,22 @@ func (k *KeychainStore) Get(ctx context.Context, service, account string) (strin
 		return "", ErrAuthDenied
 	}
 	return "", fmt.Errorf("keychain 读取失败: %s", strings.TrimSpace(string(r.stderr)))
+}
+
+// decodeKeychainPassword handles the security CLI's hexadecimal output format.
+// `security -w` prints hex when the stored secret contains control characters,
+// which is common for the pretty-printed JSON saved by provider plugins.
+func decodeKeychainPassword(stdout []byte) string {
+	value := strings.TrimRight(string(stdout), "\r\n")
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) == 0 || !utf8.Valid(decoded) {
+		return value
+	}
+	trimmed := bytes.TrimSpace(decoded)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return value
+	}
+	return string(decoded)
 }
 
 func (k *KeychainStore) Delete(ctx context.Context, service, account string) error {

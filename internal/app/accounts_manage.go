@@ -36,7 +36,19 @@ func (a *App) manageAccounts(ctx context.Context, args map[string]any) (any, err
 
 	case "delete":
 		accountID := strArg(args, "account_id")
-		if err := a.accounts.Delete(ctx, target, accountID); err != nil {
+		providerOwned := false
+		var err error
+		if a.providers != nil && a.cfg.ProviderPluginsRoot != "" {
+			providerOwned, err = a.providers.HasProvider(ctx, target)
+		}
+		if err == nil {
+			if providerOwned {
+				err = a.providers.DeleteAccount(ctx, target, accountID)
+			} else {
+				err = a.accounts.Delete(ctx, target, accountID)
+			}
+		}
+		if err != nil {
 			return nil, err
 		}
 		return a.accounts.List(ctx, target)

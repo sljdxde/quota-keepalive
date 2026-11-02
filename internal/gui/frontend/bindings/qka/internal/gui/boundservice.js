@@ -93,7 +93,7 @@ export function AccountsPinSource(target, accountID, sourceID, pinned) {
 }
 
 /**
- * AccountsRun 对单个账号执行签到或只读复查，与宿主调用共用执行链。
+ * AccountsRun 对单个账号执行签到、只读复查或额度刷新。
  * @param {string} target
  * @param {string} accountID
  * @param {string} operation
@@ -112,6 +112,18 @@ export function AccountsRun(target, accountID, operation) {
  */
 export function AccountsSetEnabled(target, accountID, enabled) {
     return $Call.ByID(1343224100, target, accountID, enabled);
+}
+
+/**
+ * AccountsSetTaskEnabled 设置自动执行是否包含该账号的某一任务。
+ * @param {string} target
+ * @param {string} accountID
+ * @param {string} operation
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function AccountsSetTaskEnabled(target, accountID, operation, enabled) {
+    return $Call.ByID(1707036579, target, accountID, operation, enabled);
 }
 
 /**
@@ -161,11 +173,174 @@ export function PluginsList() {
 }
 
 /**
+ * ProvidersList returns the bundled provider plugins and their accounts.
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersList() {
+    return $Call.ByID(740407853);
+}
+
+/**
+ * ProvidersBeginLogin starts or advances a provider sign-in.
+ * @param {string} provider
+ * @param {number} method
+ * @param {Record<string, string>} inputs
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersBeginLogin(provider, method, inputs) {
+    return $Call.ByID(1547176159, provider, method, inputs);
+}
+
+/**
+ * ProvidersFinishLogin completes OAuth or desktop sign-in.
+ * @param {string} session
+ * @param {string} code
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersFinishLogin(session, code) {
+    return $Call.ByID(3348786107, session, code);
+}
+
+/**
+ * ProvidersLoginAPIKey stores an API-key sign-in.
+ * @param {string} provider
+ * @param {number} method
+ * @param {Record<string, string>} inputs
+ * @param {string} key
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersLoginAPIKey(provider, method, inputs, key) {
+    return $Call.ByID(3589796201, provider, method, inputs, key);
+}
+
+/**
+ * ProvidersSetEnabled toggles one provider.
+ * @param {string} provider
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function ProvidersSetEnabled(provider, enabled) {
+    return $Call.ByID(217437436, provider, enabled);
+}
+
+/**
+ * ProvidersSetAccountEnabled toggles one provider account.
+ * @param {string} provider
+ * @param {string} account
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function ProvidersSetAccountEnabled(provider, account, enabled) {
+    return $Call.ByID(2126562383, provider, account, enabled);
+}
+
+/**
+ * ProvidersSetTaskEnabled toggles check-in automation.
+ * @param {string} provider
+ * @param {string} account
+ * @param {string} operation
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function ProvidersSetTaskEnabled(provider, account, operation, enabled) {
+    return $Call.ByID(3160705419, provider, account, operation, enabled);
+}
+
+/**
+ * ProvidersRun executes one provider account action.
+ * @param {string} provider
+ * @param {string} account
+ * @param {string} operation
+ * @returns {$CancellablePromise<void>}
+ */
+export function ProvidersRun(provider, account, operation) {
+    return $Call.ByID(181441518, provider, account, operation);
+}
+
+/**
+ * ProvidersTestModel checks one provider model through its signed-in account.
+ * @param {string} provider
+ * @param {string} account
+ * @param {string} model
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersTestModel(provider, account, model) {
+    return $Call.ByID(2147520430, provider, account, model);
+}
+
+/**
+ * ProvidersDeleteAccount removes QKA's provider account and credentials.
+ * @param {string} provider
+ * @param {string} account
+ * @returns {$CancellablePromise<void>}
+ */
+export function ProvidersDeleteAccount(provider, account) {
+    return $Call.ByID(850109385, provider, account);
+}
+
+/**
+ * ProvidersHistory returns recent runs and quota observations.
+ * @param {string} provider
+ * @param {string} account
+ * @param {number} limit
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ProvidersHistory(provider, account, limit) {
+    return $Call.ByID(1011114083, provider, account, limit);
+}
+
+/**
+ * FeedbackContext returns the redacted recent-log preview used by the report dialog.
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function FeedbackContext() {
+    return $Call.ByID(654170201);
+}
+
+/**
+ * FeedbackSubmit sends a redacted bug report through the Cloudflare proxy.
+ * @param {string} description
+ * @param {Array<feedback.Image>} images
+ * @param {boolean} includeLogs
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function FeedbackSubmit(description, images, includeLogs) {
+    return $Call.ByID(1874302078, description, images, includeLogs);
+}
+
+/**
  * Run 立即执行：先取预演（同一服务链），再执行。
  * @returns {$CancellablePromise<void>}
  */
 export function Run() {
     return $Call.ByID(3185373102);
+}
+
+/**
+ * ScheduleGet 返回周期自动执行的启用状态、间隔与最近结果。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ScheduleGet() {
+    return $Call.ByID(2520455692);
+}
+
+/**
+ * ScheduleSetEnabled 同步安装或删除系统调度，并返回最新状态。
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ScheduleSetEnabled(enabled) {
+    return $Call.ByID(1084834561, enabled);
+}
+
+/**
+ * ScheduleSetConfig updates the interval and action.
+ * @param {number} intervalMinutes
+ * @param {string} action
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function ScheduleSetConfig(intervalMinutes, action) {
+    return $Call.ByID(1058116718, intervalMinutes, action);
 }
 
 /**
@@ -204,9 +379,43 @@ export function SettingsSet(key, value) {
 }
 
 /**
+ * SettingsSetString 更新一个有限选项设置并保存，随后广播外观变化。
+ * @param {string} key
+ * @param {string} value
+ * @returns {$CancellablePromise<void>}
+ */
+export function SettingsSetString(key, value) {
+    return $Call.ByID(400801669, key, value);
+}
+
+/**
  * Status 返回当前状态（序列化为 JSON）。
  * @returns {$CancellablePromise<json$0.RawMessage>}
  */
 export function Status() {
     return $Call.ByID(2667040579);
+}
+
+/**
+ * TokenSpeedGet 返回本机 Agent 日志的实时 token 吞吐快照。
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function TokenSpeedGet() {
+    return $Call.ByID(1388247339);
+}
+
+/**
+ * UpdateCheck checks the official update feed without downloading an artifact.
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function UpdateCheck() {
+    return $Call.ByID(3592802008);
+}
+
+/**
+ * UpdateInstall downloads, verifies and starts the platform update handoff.
+ * @returns {$CancellablePromise<json$0.RawMessage>}
+ */
+export function UpdateInstall() {
+    return $Call.ByID(1402096867);
 }

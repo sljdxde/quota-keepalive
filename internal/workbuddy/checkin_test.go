@@ -146,6 +146,34 @@ func newCheckinTestService(t *testing.T, target *fakeCheckinTarget, now time.Tim
 	return NewCheckinService(CheckinConfig{Session: session, BaseURL: srv.URL}), srv
 }
 
+func TestSummarizeBalanceFromStringCapacities(t *testing.T) {
+	got := summarizeBalance([]resourcePackage{
+		{
+			CycleTotalCapacity: optionalNumber{Value: 1500, Set: true},
+			CycleUsedCapacity:  optionalNumber{Value: 500, Set: true},
+		},
+		{
+			CycleRemainCapacity: optionalNumber{Value: 25, Set: true},
+		},
+	})
+	if !got.Known || got.Remaining != 1025 {
+		t.Fatalf("应汇总套餐余额与预付余额，实际 %+v", got)
+	}
+}
+
+func TestSummarizeBalanceKeepsRealZeroAndUnknownDistinct(t *testing.T) {
+	zero := summarizeBalance([]resourcePackage{{
+		CycleRemainCapacity: optionalNumber{Value: 0, Set: true},
+	}})
+	if !zero.Known || zero.Remaining != 0 {
+		t.Fatalf("显式 0 余额应是已知读数，实际 %+v", zero)
+	}
+	unknown := summarizeBalance(nil)
+	if unknown.Known {
+		t.Fatalf("空套餐不得伪造 0 额度，实际 %+v", unknown)
+	}
+}
+
 func TestCheckinQueriesStatusThenClaimsOnceWhenEligible(t *testing.T) {
 	now := time.Date(2026, 10, 29, 14, 0, 0, 0, time.UTC)
 	target := &fakeCheckinTarget{active: true, claimCredit: 100}

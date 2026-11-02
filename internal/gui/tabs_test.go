@@ -2,10 +2,10 @@ package gui
 
 import "testing"
 
-func TestTabOrderFixedFiveTabs(t *testing.T) {
-	want := []string{"apps", "logs", "accounts", "agent", "plugins"}
-	if len(TabOrder) != 5 {
-		t.Fatalf("主窗口应恰为五页签，实际 %d", len(TabOrder))
+func TestTabOrderFixedSixTabs(t *testing.T) {
+	want := []string{"apps", "checkin", "speed", "pet", "logs", "settings"}
+	if len(TabOrder) != 6 {
+		t.Fatalf("主窗口应恰为六页签，实际 %d", len(TabOrder))
 	}
 	for i, tab := range TabOrder {
 		if tab.ID != want[i] {

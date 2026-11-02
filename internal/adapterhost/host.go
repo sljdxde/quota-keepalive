@@ -26,6 +26,7 @@ var (
 	// ErrMessageTooLarge：适配器输出超过有界上限。
 	ErrMessageTooLarge = errors.New("适配器消息超过有界上限")
 	errHostClosed      = errors.New("适配器宿主已关闭")
+	newAdapterCommand  = exec.Command
 )
 
 type rpcRequest struct {
@@ -100,7 +101,7 @@ func LaunchWith(ctx context.Context, bunPath, adapterDir string, hooks HookHandl
 		return nil, err
 	}
 
-	cmd := exec.Command(bunPath, "run", manifest.Entry)
+	cmd := newAdapterCommand(bunPath, "run", manifest.Entry)
 	cmd.Dir = adapterDir
 
 	stdin, err := cmd.StdinPipe()
@@ -163,17 +164,11 @@ func (h *Host) readLoop(stdout io.Reader) {
 	scanner.Buffer(make([]byte, 0, 64*1024), MaxMessageBytes)
 	for scanner.Scan() {
 		raw := scanner.Bytes()
-		var kind struct {
-			Method string `json:"method"`
-		}
-		if err := json.Unmarshal(raw, &kind); err != nil {
+		var req hookRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
 			continue // 非协议行忽略
 		}
-		if kind.Method != "" {
-			var req hookRequest
-			if err := json.Unmarshal(raw, &req); err != nil {
-				continue
-			}
+		if req.Method != "" {
 			go h.handleHookRequest(req)
 			continue
 		}

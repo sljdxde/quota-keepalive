@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"qka/internal/engine"
+	"qka/internal/features"
 )
 
 // CapabilitiesFunc 返回某目标支持的操作（从适配器能力推导，不硬编码产品）。
@@ -139,6 +140,35 @@ func (s *Service) preferredSource(
 	return sourceAvailability{health: "disabled"}, nil
 }
 
+func (s *Service) taskPreferences(
+	ctx context.Context,
+	target, account string,
+) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT operation, enabled FROM account_task_preferences
+WHERE target = ? AND account_id = ?`, target, account)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string]bool{}
+	for rows.Next() {
+		var operation string
+		var enabled int
+		if err := rows.Scan(&operation, &enabled); err != nil {
+			return nil, err
+		}
+		out[operation] = enabled == 1
+	}
+	return out, rows.Err()
+}
+
+func taskEnabled(preferences map[string]bool, operation string) bool {
+	enabled, ok := preferences[operation]
+	return !ok || enabled
+}
+
 // Status 汇总当前状态（只读，不含计划字段）。
 func (s *Service) Status(ctx context.Context) (View, error) {
 	accts, err := s.accounts(ctx)
@@ -162,9 +192,14 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 			return View{}, err
 		}
 		as.SourceHealth = source.health
+		prefs, err := s.taskPreferences(ctx, a.target, a.id)
+		if err != nil {
+			return View{}, err
+		}
 
 		rows, err := s.db.QueryContext(ctx,
-			`SELECT operation, state FROM daily_ops
+			`SELECT operation, state, credits, balance, credits_known, balance_known
+			 FROM daily_ops
 			 WHERE target = ? AND account_id = ? AND day_key = ?`,
 			a.target, a.id, day)
 		if err != nil {
@@ -172,12 +207,27 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 		}
 		for rows.Next() {
 			var op, state string
-			if err := rows.Scan(&op, &state); err != nil {
+			var credits, balance float64
+			var creditsKnown, balanceKnown int
+			if err := rows.Scan(&op, &state, &credits, &balance,
+				&creditsKnown, &balanceKnown); err != nil {
 				rows.Close()
 				return View{}, err
 			}
+			if !features.OperationAvailable(op) {
+				continue
+			}
 			opStatus := OpStatus{
 				Target: a.target, AccountID: a.id, Operation: op, State: state,
+				TaskEnabled: taskEnabled(prefs, op),
+			}
+			if creditsKnown == 1 {
+				v := credits
+				opStatus.Credits = &v
+			}
+			if balanceKnown == 1 {
+				v := balance
+				opStatus.Balance = &v
 			}
 			if state == "signed_provisional" {
 				as.PendingReasons = append(as.PendingReasons, "已领取，待复核")
@@ -212,7 +262,8 @@ func (s *Service) Status(ctx context.Context) (View, error) {
 
 func (s *Service) lastInvocation(ctx context.Context) string {
 	var ts sql.NullString
-	_ = s.db.QueryRowContext(ctx, `SELECT MAX(ts) FROM logs`).Scan(&ts)
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT MAX(ts) FROM logs WHERE operation <> ?`, "keepalive").Scan(&ts)
 	return ts.String
 }
 
@@ -234,15 +285,26 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 		if err != nil {
 			return Plan{}, err
 		}
+		prefs, err := s.taskPreferences(ctx, a.target, a.id)
+		if err != nil {
+			return Plan{}, err
+		}
 
 		for _, op := range s.caps(a.target) {
+			if !features.OperationAvailable(op) {
+				continue
+			}
+			if !taskEnabled(prefs, op) {
+				continue
+			}
 			item := PlanItem{Target: a.target, AccountID: a.id, Operation: op, CostHint: costHint(op)}
 
-			var state, cooldown string
+			var state, cooldown, leaseExpires string
 			err := s.db.QueryRowContext(ctx,
-				`SELECT state, COALESCE(cooldown_until, '') FROM daily_ops
+				`SELECT state, COALESCE(cooldown_until, ''),
+				        COALESCE(lease_expires_at, '') FROM daily_ops
 				 WHERE target = ? AND account_id = ? AND operation = ? AND day_key = ?`,
-				a.target, a.id, op, day).Scan(&state, &cooldown)
+				a.target, a.id, op, day).Scan(&state, &cooldown, &leaseExpires)
 			if err != nil && err != sql.ErrNoRows {
 				return Plan{}, err
 			}
@@ -256,8 +318,12 @@ func (s *Service) PlanValidate(ctx context.Context) (Plan, error) {
 					item.Conflicts = append(item.Conflicts, "同日已终态")
 				}
 			case "signed_confirmed", "signed_provisional", "completed",
-				"already", "ineligible", "inactive":
+				"already", "ineligible", "inactive", "failed_final":
 				item.Conflicts = append(item.Conflicts, "同日已终态")
+			case "running":
+				if expires, perr := time.Parse(time.RFC3339, leaseExpires); perr == nil && expires.After(now) {
+					item.Conflicts = append(item.Conflicts, "执行中，租约仍有效")
+				}
 			case "failed_retryable":
 				if cd, perr := time.Parse(time.RFC3339, cooldown); perr == nil && cd.After(now) {
 					item.Cooldown = true

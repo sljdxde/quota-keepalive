@@ -14,36 +14,61 @@ func accountPage(t *testing.T) string {
 	return string(data)
 }
 
-func TestAccountManagementShowsLifecycleFeedback(t *testing.T) {
+func TestCheckinManagementUsesGenericProviderLifecycle(t *testing.T) {
 	page := accountPage(t)
 	for _, want := range []string{
-		"a.masked_identity",
-		"sourceKindLabel",
-		"sourceHealthLabel",
-		"await action()",
-		"Bound.AccountsSetEnabled",
-		"Bound.AccountsDelete",
+		"Bound.ProvidersList()",
+		"Bound.ProvidersSetAccountEnabled",
+		"Bound.ProvidersSetTaskEnabled",
+		"Bound.ProvidersRun",
+		"Bound.ProvidersTestModel",
+		"Bound.ProvidersHistory",
+		"Bound.ProvidersDeleteAccount",
+		"account.masked_identity",
+		"account.enabled",
+		"taskEnabledFor(account, operation)",
 		"账号已启用",
 		"账号已停用",
-		"账号已删除",
-		"启用失败",
-		"停用失败",
-		"删除失败",
+		"账号已从 Quota Keepalive 删除，供应商数据未被修改",
+		"账号设置保存失败，请重试。",
+		"任务偏好保存失败，请重试。",
+		"删除失败，请稍后重试。",
+		"throw err",
+		"let accountsRenderGeneration = 0;",
+		"const request = ++accountsRenderGeneration;",
+		"if (request !== accountsRenderGeneration) return;",
+		`import { resolveAccountProviderView } from "./assets/account-view.js"`,
+		"resolveAccountProviderView(",
+		"populateProviderPicker(view, resolved.selectedProvider);",
+		"if (!providers.length)",
+		"providerModelPanel(provider)",
+		"account-group-body",
+		`add.textContent = "添加账号"`,
+		`free.textContent = "免费"`,
+		"provider-model-chip",
+		`test.textContent = "测试模型"`,
+		"model-test-result",
+		`const head = document.createElement("button")`,
+		`head.type = "button"`,
+		`head.className = "account-group-head"`,
+		`head.onclick = toggleGroup`,
+		`head.setAttribute("aria-expanded"`,
+		`head.setAttribute("aria-label"`,
+		`cursor: pointer; user-select: none`,
+		`const collapse = document.createElement("span")`,
 	} {
 		if !strings.Contains(page, want) {
-			t.Errorf("账号管理页缺少用户可见行为 %q", want)
+			t.Errorf("签到管理页缺少通用供应商行为 %q", want)
 		}
 	}
 }
 
-func TestAccountManagementOnlyShowsSupportedWorkBuddyEntry(t *testing.T) {
+func TestCheckinManagementDoesNotExposeUnsafeCredentialInputs(t *testing.T) {
 	page := accountPage(t)
 	for _, forbidden := range []string{
 		`id="target-select"`,
 		`value="qoder-cn"`,
 		`value="doubao-work"`,
-		`data-act="import"`,
-		"API key",
 		"导入来源",
 		"桌面登录",
 		`type="password"`,
@@ -52,50 +77,115 @@ func TestAccountManagementOnlyShowsSupportedWorkBuddyEntry(t *testing.T) {
 		`placeholder="扫码`,
 	} {
 		if strings.Contains(page, forbidden) {
-			t.Errorf("账号管理页不应出现 MVP 不支持的入口或字段 %q", forbidden)
-		}
-	}
-	for _, want := range []string{
-		`data-act="login"`,
-		`data-act="discover"`,
-		"WorkBuddy CN",
-		"官方登录添加",
-	} {
-		if !strings.Contains(page, want) {
-			t.Errorf("账号管理页缺少 WorkBuddy CN 入口 %q", want)
+			t.Errorf("签到管理页不应出现凭据输入或固定目标入口 %q", forbidden)
 		}
 	}
 }
 
-func TestAccountManagementShowsPerAccountStateAndActions(t *testing.T) {
+func TestCheckinManagementHasPerTaskActionsAndQuotaHistory(t *testing.T) {
 	page := accountPage(t)
 	for _, want := range []string{
-		"a.operations",
-		"op.message",
-		"op.next_action",
-		"manual_required",
-		"Bound.AccountsRun",
+		`const ops = provider.checkin ? ["checkin"] : []`,
 		"立即签到",
-		"只读复查",
-		"重新登录",
-		"刷新状态",
-		"正在刷新登录状态与只读验证结果",
-		"正在重试只读验证",
-		"throw err",
-		"无健康来源",
-		"网络请求失败",
-		"emptyAccounts",
+		"今日已完成",
+		"刷新额度",
+		"历史 / 额度",
+		"当前额度",
+		"function claimGrowth(op)",
+		`"今日已领取 +" + formatQuota(growth)`,
+		"Math.abs(value - Number(op.balance)) > 0.000001",
+		"provider-history",
+		"quotaSummary(op)",
+		"terminal",
+		"trigger.disabled = !account.enabled || terminal",
+		"账号已停用",
+		"已启用 · 按签到开关执行",
+		"今日尚未执行",
+		"自动执行",
+		"仅手动",
 		"overflow-x: hidden",
-		"run.disabled = !a.enabled",
-		"请先启用账号",
+		"background: var(--wall-gradient)",
+		`document.documentElement.dataset.theme = theme`,
+		`Events.On("theme-changed"`,
+		`Events.On("schedule-changed", renderSchedule)`,
+		"自动执行：已启用",
 	} {
 		if !strings.Contains(page, want) {
-			t.Errorf("账号管理页缺少状态或反馈 %q", want)
+			t.Errorf("签到管理页缺少状态或操作 %q", want)
 		}
 	}
 }
 
-func TestFrontendAccountCallsExistInGeneratedBindings(t *testing.T) {
+func TestProviderLoginSupportsPromptOAuthAndAPIKey(t *testing.T) {
+	page := accountPage(t)
+	for _, want := range []string{
+		`id="provider-login-dialog"`,
+		"Bound.ProvidersBeginLogin",
+		"Bound.ProvidersFinishLogin",
+		"Bound.ProvidersLoginAPIKey",
+		`view.status === "prompt"`,
+		`view.status === "api_key"`,
+		`view.status === "authorized"`,
+		`view.status === "verified"`,
+		"登录完成，账号已添加并默认启用",
+		"Quota Keepalive 不接收密码、验证码或扫码内容",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("供应商登录弹窗缺少 %q", want)
+		}
+	}
+}
+
+func TestProviderLoginHasInteractivePikachu(t *testing.T) {
+	page := accountPage(t)
+	for _, want := range []string{
+		`id="provider-login-pokemon"`,
+		`id="provider-login-pokemon-art"`,
+		`id="provider-login-pokemon-bubble"`,
+		`id="provider-login-pokemon-particles"`,
+		`pokemonById,`,
+		`import { createPokemon3D } from "./assets/pokemon-3d.js"`,
+		`const providerLoginPikachu = pokemonById("pikachu")`,
+		`class="pokemon-3d-canvas"`,
+		`models: [providerLoginPikachu.stages[0].model]`,
+		`modelRotations: [providerLoginPikachu.stages[0].rotation || null]`,
+		`createPokemon3D(`,
+		`providerLoginPokemonViewer.setPointer(nx, ny)`,
+		`providerLoginPokemonViewer.playSkill("electric", 3)`,
+		`providerLoginPokemonArt.classList.add("is-3d")`,
+		`function aimProviderLoginPokemon(`,
+		`setProperty("--login-look-x"`,
+		`.provider-login-pokemon-art .pokemon-stage-image`,
+		`[data-stage="1"]`,
+		`function spawnProviderLoginPokemonSparks(`,
+		`function triggerProviderLoginPokemonPlay(`,
+		`classList.add("zapping")`,
+		`provider-login-spark`,
+		`document.visibilityState !== "hidden"`,
+		`@media (prefers-reduced-motion: reduce)`,
+		`function finishAuthorizedProviderLogin(`,
+		`Bound.ProvidersFinishLogin(session, "")`,
+		`完成后会自动验证并关闭登录窗口`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("供应商登录弹窗缺少皮卡丘交互 %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`id="provider-login-cat"`,
+		`import("./assets/cat-3d.js")`,
+		`createCat3D`,
+		`登录成功，喵`,
+		`provider-login-wand`,
+		`wand-sway`,
+	} {
+		if strings.Contains(page, forbidden) {
+			t.Errorf("供应商登录弹窗不应保留旧橘猫实现 %q", forbidden)
+		}
+	}
+}
+
+func TestFrontendProviderCallsExistInGeneratedBindings(t *testing.T) {
 	page := accountPage(t)
 	data, err := frontendFS.ReadFile("frontend/bindings/qka/internal/gui/boundservice.js")
 	if err != nil {
@@ -103,14 +193,21 @@ func TestFrontendAccountCallsExistInGeneratedBindings(t *testing.T) {
 	}
 	bindings := string(data)
 	for _, method := range []string{
-		"AccountsList",
-		"AccountsDiscover",
-		"AccountsBeginLogin",
-		"AccountsLoginStatus",
-		"AccountsCancelLogin",
-		"AccountsSetEnabled",
-		"AccountsDelete",
-		"AccountsRun",
+		"ProvidersList",
+		"ProvidersBeginLogin",
+		"ProvidersFinishLogin",
+		"ProvidersLoginAPIKey",
+		"ProvidersSetAccountEnabled",
+		"ProvidersSetTaskEnabled",
+		"ProvidersRun",
+		"ProvidersTestModel",
+		"ProvidersDeleteAccount",
+		"ProvidersHistory",
+		"ScheduleGet",
+		"ScheduleSetEnabled",
+		"ScheduleSetConfig",
+		"UpdateCheck",
+		"UpdateInstall",
 	} {
 		if strings.Contains(page, "Bound."+method+"(") &&
 			!strings.Contains(bindings, "export function "+method+"(") {

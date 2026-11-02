@@ -10,8 +10,10 @@ import (
 
 // Artifact 是归档中的一个制品。
 type Artifact struct {
-	Name string
-	Data []byte
+	Platform string
+	Name     string
+	Data     []byte
+	URL      string
 }
 
 // SHA256SUMS 生成「<hex>  <name>」逐行的校验清单。
@@ -32,6 +34,7 @@ type FeedArtifact struct {
 	Platform string `json:"platform"`
 	Name     string `json:"name"`
 	SHA256   string `json:"sha256"`
+	URL      string `json:"url,omitempty"`
 }
 
 // Feed 是 feed.json 结构。
@@ -47,26 +50,39 @@ type FeedStable struct {
 
 // GenerateFeed 生成 feed.json。
 func GenerateFeed(version string, artifacts []Artifact) ([]byte, error) {
-	platforms := map[string]string{
-		"darwin-arm64": "darwin/arm64",
-		"darwin-amd64": "darwin/amd64",
-	}
 	var entries []FeedArtifact
 	for _, a := range artifacts {
 		sum := sha256.Sum256(a.Data)
-		platform := a.Name
-		if p, ok := platforms[a.Name]; ok {
-			platform = p
+		platform := strings.TrimSpace(a.Platform)
+		if platform == "" {
+			platform = inferPlatform(a.Name)
 		}
 		entries = append(entries, FeedArtifact{
-			Platform: platform, Name: a.Name, SHA256: hex.EncodeToString(sum[:]),
+			Platform: platform, Name: a.Name, SHA256: hex.EncodeToString(sum[:]), URL: a.URL,
 		})
 	}
-	data, err := json.MarshalIndent(Feed{Stable: FeedStable{
+	data, _ := json.MarshalIndent(Feed{Stable: FeedStable{
 		Version: version, Artifacts: entries,
 	}}, "", "  ")
-	if err != nil {
-		return nil, err
-	}
 	return append(data, '\n'), nil
+}
+
+func inferPlatform(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "darwin-arm64"):
+		return "darwin/arm64"
+	case strings.Contains(lower, "darwin-amd64"):
+		return "darwin/amd64"
+	case strings.Contains(lower, "windows-arm64"):
+		return "windows/arm64"
+	case strings.Contains(lower, "windows-amd64"):
+		return "windows/amd64"
+	case strings.HasSuffix(lower, "-arm64.dmg"):
+		return "darwin/arm64"
+	case strings.HasSuffix(lower, "-amd64.dmg"):
+		return "darwin/amd64"
+	default:
+		return name
+	}
 }

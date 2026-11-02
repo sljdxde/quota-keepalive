@@ -4,12 +4,17 @@ package status
 
 // OpStatus 是单账号×操作的今日状态。
 type OpStatus struct {
-	Target     string `json:"target"`
-	AccountID  string `json:"account_id"`
-	Operation  string `json:"operation"`
-	State      string `json:"state"`
-	Message    string `json:"message,omitempty"`
-	NextAction string `json:"next_action,omitempty"`
+	Target     string   `json:"target"`
+	AccountID  string   `json:"account_id"`
+	Operation  string   `json:"operation"`
+	State      string   `json:"state"`
+	Credits    *float64 `json:"credits,omitempty"`
+	Balance    *float64 `json:"balance,omitempty"`
+	Message    string   `json:"message,omitempty"`
+	NextAction string   `json:"next_action,omitempty"`
+	// TaskEnabled reports whether automatic execution includes this operation.
+	// Manual execution is still allowed when it is false.
+	TaskEnabled bool `json:"task_enabled"`
 }
 
 // AccountStatus 是单账号的状态视图。

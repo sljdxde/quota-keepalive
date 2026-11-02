@@ -21,3 +21,9 @@ func TestWorkBuddyLoginBaseURLOverrideForControlledTarget(t *testing.T) {
 		t.Fatalf("受控测试应可覆盖基址，实际 %s", got)
 	}
 }
+
+func TestGUIExposesOnlyCompletedWorkBuddyTarget(t *testing.T) {
+	if len(targetOrder) != 1 || targetOrder[0] != "workbuddy-cn" {
+		t.Fatalf("MVP 界面只应展示已闭环的 WorkBuddy CN，实际 %v", targetOrder)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"qka/internal/adapterhost"
 	"qka/internal/capabilities"
 	"qka/internal/engine"
+	"qka/internal/requestguard"
 	"qka/internal/status"
 	"qka/internal/store"
 )
@@ -31,6 +32,9 @@ type workBuddyCheckinTarget struct {
 	claimCredit         float64
 	claimMessage        string
 	claimDelayed        bool
+	omitClaimCredit     bool
+	todayCredit         float64
+	balancePackages     []map[string]any
 	failUID             string
 	statuses            int
 	claims              int
@@ -70,7 +74,8 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 			}
 			writeWorkBuddyEnvelope(t, w, map[string]any{
 				"active": f.active, "today_checked_in": f.checked,
-				"streak_days": 3, "daily_credit": 100, "today_credit": 0,
+				"streak_days": 3, "daily_credit": 100,
+				"today_credit": map[bool]float64{true: f.todayCredit, false: 0}[f.checked],
 			})
 		case "/v2/billing/meter/daily-checkin":
 			f.claims++
@@ -86,11 +91,15 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 				return
 			}
 			f.checked = true
-			writeWorkBuddyEnvelope(t, w, map[string]any{
+			data := map[string]any{
 				"credit": f.claimCredit, "streak_days": 4,
 				"credit_delayed": f.claimDelayed,
 				"message":        f.claimMessage,
-			})
+			}
+			if f.omitClaimCredit {
+				delete(data, "credit")
+			}
+			writeWorkBuddyEnvelope(t, w, data)
 		case "/billing/meter/get-user-resource-summary":
 			f.balances++
 			if f.balanceNetworkFail {
@@ -108,7 +117,11 @@ func (f *workBuddyCheckinTarget) serve(t *testing.T) *httptest.Server {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			writeWorkBuddyEnvelope(t, w, map[string]any{"IsPaidUser": true})
+			if f.balancePackages == nil {
+				writeWorkBuddyEnvelope(t, w, map[string]any{"IsPaidUser": true})
+				return
+			}
+			writeWorkBuddyEnvelope(t, w, map[string]any{"Packages": f.balancePackages})
 		default:
 			t.Errorf("签到出现未预期请求: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -120,7 +133,8 @@ func newWorkBuddyCheckinApp(
 	t *testing.T, targetURL string, now time.Time,
 ) (*App, *accounts.Service, string) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	configDir := t.TempDir()
+	st, err := store.Open(configDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +171,7 @@ func newWorkBuddyCheckinApp(
 	}
 
 	a := &App{
-		cfg:   Config{BaseURLs: map[string]string{"workbuddy-cn": targetURL}},
+		cfg:   Config{ConfigDir: configDir, BaseURLs: map[string]string{"workbuddy-cn": targetURL}},
 		now:   func() time.Time { return now },
 		store: st, accounts: acct, credentials: creds,
 		engine: engine.New(st.DB(), func() time.Time { return now }, "checkin-test"),
@@ -184,8 +198,9 @@ func TestWorkBuddyCheckinRunClaimsOnceAndRecordsEvidence(t *testing.T) {
 	if !got.Executed || got.State != engine.SignedConfirmed {
 		t.Errorf("午后有回执应确认到账，实际 %+v", got)
 	}
-	if target.statuses != 1 || target.claims != 1 {
-		t.Errorf("应先查状态再领取一次，status=%d claims=%d", target.statuses, target.claims)
+	if target.statuses != 2 || target.claims != 1 {
+		t.Errorf("应先查状态再领取一次，成功后只读刷新额度，status=%d claims=%d",
+			target.statuses, target.claims)
 	}
 	var logState, logMessage string
 	if err := a.store.DB().QueryRowContext(context.Background(),
@@ -195,6 +210,134 @@ func TestWorkBuddyCheckinRunClaimsOnceAndRecordsEvidence(t *testing.T) {
 	}
 	if logState != string(engine.SignedConfirmed) || logMessage != "已到账" {
 		t.Errorf("签到日志应记录最终状态，实际 %s/%s", logState, logMessage)
+	}
+}
+
+func TestWorkBuddyCheckinStoresCreditAndCurrentQuota(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, claimCredit: 100,
+		balancePackages: []map[string]any{{
+			"CycleTotalCapacity": "1500", "CycleUsedCapacity": "100",
+		}},
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("签到失败: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.Credits == nil || *got.Credits != 100 {
+		t.Fatalf("签到结果应显示本次领取额度，实际 %+v", got)
+	}
+	if got.Balance == nil || *got.Balance != 1400 {
+		t.Fatalf("签到结果应显示剩余额度，实际 %+v", got)
+	}
+
+	view, err := a.status.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Accounts) != 1 || len(view.Accounts[0].Operations) != 1 {
+		t.Fatalf("账号状态应包含今日签到，实际 %+v", view)
+	}
+	op := view.Accounts[0].Operations[0]
+	if op.Credits == nil || *op.Credits != 100 ||
+		op.Balance == nil || *op.Balance != 1400 {
+		t.Errorf("状态视图应同时包含领取额度与剩余额度，实际 %+v", op)
+	}
+	var readings int
+	if err := a.store.DB().QueryRowContext(context.Background(), `
+SELECT count(*) FROM quota_readings
+WHERE provider = 'workbuddy-cn' AND account_id = ?`, accountID).Scan(&readings); err != nil {
+		t.Fatal(err)
+	}
+	if readings != 1 {
+		t.Fatalf("签到成功后应写入额度历史，实际 %d 条", readings)
+	}
+}
+
+func TestWorkBuddyAlreadyCheckedInStoresTodayCreditAndQuota(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, checked: true, todayCredit: 100,
+		balancePackages: []map[string]any{{
+			"CycleRemainCapacity": "1200",
+		}},
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("状态查询失败: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.Already || got.Executed != true {
+		t.Fatalf("今日已领取应返回 already，实际 %+v", got)
+	}
+	if target.claims != 0 {
+		t.Errorf("今日已领取不得再次领取，实际 %d 次", target.claims)
+	}
+	if got.Credits == nil || *got.Credits != 100 ||
+		got.Balance == nil || *got.Balance != 1200 {
+		t.Errorf("已领取状态应显示今日额度与当前额度，实际 %+v", got)
+	}
+}
+
+func TestWorkBuddyUnknownQuotaDoesNotBecomeZero(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{active: true, omitClaimCredit: true}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("签到失败: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.Credits != nil || got.Balance != nil {
+		t.Errorf("未知额度不得伪造为 0，实际 %+v", got)
+	}
+	if got.State != engine.SignedProvisional {
+		t.Errorf("无额度回执仍应保持待确认，实际 %+v", got)
+	}
+}
+
+func TestWorkBuddyRefreshReadsQuotaWithoutClaiming(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, checked: true, todayCredit: 100,
+		balancePackages: []map[string]any{{
+			"CycleTotalCapacity": 1500.0, "CycleUsedCapacity": 300.0,
+		}},
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	if err := a.RunAccount(context.Background(), "workbuddy-cn", accountID, "refresh"); err != nil {
+		t.Fatalf("只读刷新额度失败: %v", err)
+	}
+	if target.claims != 0 {
+		t.Fatalf("刷新额度不得调用领取接口，实际 %d 次", target.claims)
+	}
+	view, err := a.status.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := view.Accounts[0].Operations[0]
+	if op.State != "pending" || op.Credits == nil || *op.Credits != 100 ||
+		op.Balance == nil || *op.Balance != 1200 {
+		t.Fatalf("刷新应写入只读额度且不改变待执行状态，实际 %+v", op)
 	}
 }
 
@@ -233,6 +376,47 @@ func TestWorkBuddyCheckinDelayedCreditStaysProvisional(t *testing.T) {
 	got := obs.(engine.Observation)
 	if got.State != engine.SignedProvisional || got.Message != "已领取，待确认" {
 		t.Errorf("延迟到账不得宣称已到账，实际 %+v", got)
+	}
+}
+
+func TestWorkBuddyQuotaReadFailureDoesNotUndoSuccessfulCheckin(t *testing.T) {
+	now := time.Date(2026, 10, 29, 14, 0, 0, 0, engine.Beijing)
+	target := &workBuddyCheckinTarget{
+		active: true, claimCredit: 100, balanceUnauthorized: true,
+	}
+	srv := target.serve(t)
+	defer srv.Close()
+
+	a, acct, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	obs, err := a.CallTool(context.Background(), "checkin_run",
+		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
+	if err != nil {
+		t.Fatalf("签到失败: %v", err)
+	}
+	got := obs.(engine.Observation)
+	if got.State != engine.SignedConfirmed || got.Credits == nil || *got.Credits != 100 {
+		t.Fatalf("额度读取失败不得撤销签到成功，实际 %+v", got)
+	}
+	if got.Balance != nil {
+		t.Errorf("余额 401 时不得伪造额度，实际 %+v", got.Balance)
+	}
+	var message string
+	if err := a.store.DB().QueryRowContext(context.Background(), `
+SELECT message FROM daily_ops
+WHERE target = 'workbuddy-cn' AND account_id = ? AND operation = 'checkin'
+ORDER BY day_key DESC LIMIT 1`, accountID).Scan(&message); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(message, "刷新额度") {
+		t.Errorf("余额读取失败时卡片应给出刷新提示，实际 %q", message)
+	}
+	account, err := acct.Get(context.Background(), "workbuddy-cn", accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Sources[0].Health != accounts.HealthHealthy {
+		t.Errorf("成功签到后的可选额度读取失败不得标记需重登，实际 %+v",
+			account.Sources[0])
 	}
 }
 
@@ -349,9 +533,12 @@ func TestWorkBuddyCheckinRunAllIsolatesAccountFailures(t *testing.T) {
 	}
 	// The second account's upstream failure must not stop the first account
 	// or disable either mapping.
-	err := a.RunAll(context.Background())
+	summary, err := a.RunAllGuarded(context.Background())
 	if err != nil {
 		t.Fatalf("可重试的账号失败应由状态机记录，不应中止批次: %v", err)
+	}
+	if summary.Attempted != 2 || summary.Succeeded != 1 || summary.NeedsAttention != 1 {
+		t.Errorf("批次摘要应隔离一个失败账号，实际 %+v", summary)
 	}
 
 	var firstState, secondState string
@@ -431,6 +618,7 @@ func TestWorkBuddyCheckin401WithWorkingBalanceEntersOwnAppFallback(t *testing.T)
 	defer srv.Close()
 
 	a, _, accountID := newWorkBuddyCheckinApp(t, srv.URL, now)
+	a.riskGuard = requestguard.New(a.now)
 	obs, err := a.CallTool(context.Background(), "checkin_run",
 		rawJSON(`{"target":"workbuddy-cn","account_id":"`+accountID+`"}`))
 	if err != nil {
@@ -448,6 +636,10 @@ func TestWorkBuddyCheckin401WithWorkingBalanceEntersOwnAppFallback(t *testing.T)
 	}
 	if target.balances != 1 {
 		t.Errorf("应以同一受管凭据只读查询余额一次，实际 %d", target.balances)
+	}
+	if _, reason, ok := a.riskGuard.Cooldown("workbuddy-cn", accountID); !ok ||
+		reason != requestguard.ReasonChallenge {
+		t.Fatalf("manual-required check-in should apply a challenge cooldown: %v %v", reason, ok)
 	}
 
 	var logState, logMessage string

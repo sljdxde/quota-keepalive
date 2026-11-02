@@ -2,6 +2,8 @@ package portsel
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"qka/internal/atomicfile"
@@ -60,5 +62,25 @@ func TestSelectAndPersistConflictWhenPairedPortOccupied(t *testing.T) {
 	_, err := SelectAndPersist(dir, func(int) bool { return false })
 	if !errors.Is(err, ErrEndpointConflict) {
 		t.Fatalf("期望 ErrEndpointConflict，实际 %v", err)
+	}
+}
+
+func TestSelectAndPersistErrorPaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SelectAndPersist(dir, func(int) bool { return true }); err == nil {
+		t.Fatal("损坏端点文件应返回错误")
+	}
+	if _, err := SelectAndPersist(t.TempDir(), func(int) bool { return false }); !errors.Is(err, ErrNoFreePort) {
+		t.Fatalf("无可用端口应返回 ErrNoFreePort，实际 %v", err)
+	}
+
+	oldSave := saveEndpoint
+	t.Cleanup(func() { saveEndpoint = oldSave })
+	saveEndpoint = func(string, atomicfile.Endpoint) error { return errors.New("save failed") }
+	if _, err := SelectAndPersist(t.TempDir(), func(int) bool { return true }); err == nil {
+		t.Fatal("端点保存失败应返回错误")
 	}
 }

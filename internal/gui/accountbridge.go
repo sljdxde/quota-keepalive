@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"qka/internal/accounts"
+	"qka/internal/features"
 	"qka/internal/status"
 	"qka/internal/workbuddy"
 )
@@ -36,6 +37,7 @@ type realBridge struct {
 	logins LoginManager
 	runner AccountRunner
 	status func(context.Context) (status.View, error)
+	tasks  func(string) []string
 }
 
 // NewAccountBridge 组装 AccountBridge。
@@ -62,6 +64,13 @@ func (b *realBridge) WithRuntime(
 	return b
 }
 
+// WithTaskCapabilities adds the target's supported automatic operations so the
+// account page can render a stable toggle/button for every task.
+func (b *realBridge) WithTaskCapabilities(tasks func(string) []string) *realBridge {
+	b.tasks = tasks
+	return b
+}
+
 func (b *realBridge) List(ctx context.Context) ([]AccountView, error) {
 	list, err := b.acct.List(ctx, "workbuddy-cn")
 	if err != nil {
@@ -76,7 +85,14 @@ func (b *realBridge) List(ctx context.Context) ([]AccountView, error) {
 		}
 	}
 	for _, account := range list {
-		entry := AccountView{Account: account}
+		entry := AccountView{
+			Account:         account,
+			TaskPreferences: map[string]bool{},
+		}
+		prefs, err := b.acct.TaskPreferences(ctx, account.Target, account.ID)
+		if err != nil {
+			return nil, err
+		}
 		for _, current := range view.Accounts {
 			if current.Target == account.Target && current.AccountID == account.ID {
 				entry.SourceHealth = current.SourceHealth
@@ -84,9 +100,47 @@ func (b *realBridge) List(ctx context.Context) ([]AccountView, error) {
 				break
 			}
 		}
+		operations := []string{}
+		if b.tasks != nil {
+			for _, operation := range b.tasks(account.Target) {
+				if features.OperationAvailable(operation) {
+					operations = append(operations, operation)
+				}
+			}
+		}
+		for _, op := range entry.Operations {
+			if !features.OperationAvailable(op.Operation) {
+				continue
+			}
+			if !containsString(operations, op.Operation) {
+				operations = append(operations, op.Operation)
+			}
+		}
+		for operation := range prefs {
+			if !features.OperationAvailable(operation) {
+				continue
+			}
+			if !containsString(operations, operation) {
+				operations = append(operations, operation)
+			}
+		}
+		entry.TaskOperations = operations
+		for _, operation := range operations {
+			enabled, ok := prefs[operation]
+			entry.TaskPreferences[operation] = !ok || enabled
+		}
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *realBridge) Discover(ctx context.Context, target string) error {
@@ -152,4 +206,12 @@ func (b *realBridge) Run(ctx context.Context, target, accountID, operation strin
 		return errors.New("账号执行链未接线")
 	}
 	return b.runner.RunAccount(ctx, target, accountID, operation)
+}
+
+func (b *realBridge) SetTaskEnabled(
+	ctx context.Context,
+	target, accountID, operation string,
+	enabled bool,
+) error {
+	return b.acct.SetTaskEnabled(ctx, target, accountID, operation, enabled)
 }

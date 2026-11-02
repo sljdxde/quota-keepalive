@@ -2,7 +2,6 @@ package portsel
 
 import (
 	"io/fs"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -13,24 +12,6 @@ type Occupant struct {
 	PID  int    `json:"pid"`
 	Name string `json:"name"`
 	Kind string `json:"kind"` // docker | orbstack | other
-}
-
-// runLsof 以机器可解析格式（-F p/c）读取端口上的 LISTEN 进程。
-func runLsof(port int) ([]string, error) {
-	out, err := exec.Command("lsof", "-nP", "-Fpct",
-		"-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN").Output()
-	if err != nil {
-		// lsof 无匹配时退出码为 1：视为无占用者，而非命令失败。
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-	trimmed := strings.TrimSpace(string(out))
-	if trimmed == "" {
-		return []string{}, nil
-	}
-	return strings.Split(trimmed, "\n"), nil
 }
 
 func describeOccupant(port int, lsof func(int) ([]string, error)) (Occupant, error) {

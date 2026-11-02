@@ -75,3 +75,17 @@ func TestUserDenial(t *testing.T) {
 		t.Fatal("拒绝应写审计事件")
 	}
 }
+
+func TestDefaultAuditCallbackIsCallable(t *testing.T) {
+	gate := NewGate(false, nil, nil)
+	if _, err := gate.RequestLoad(sampleLoad()); err != ErrDevModeDisabled {
+		t.Fatalf("默认审计回调不应改变拒绝行为，实际 %v", err)
+	}
+}
+
+func TestDefaultConfirmationDenies(t *testing.T) {
+	gate := NewGate(true, nil, nil)
+	if _, err := gate.RequestLoad(sampleLoad()); err != ErrLoadDenied {
+		t.Fatalf("未注入确认回调时应默认拒绝，实际 %v", err)
+	}
+}

@@ -28,7 +28,7 @@ func SaveEndpoint(configDir string, ep Endpoint) error {
 	if err := EnsureDir(configDir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(ep, "", "  ")
+	data, err := marshalIndent(ep, "", "  ")
 	if err != nil {
 		return err
 	}

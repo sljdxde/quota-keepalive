@@ -77,3 +77,17 @@ func TestDescribeOccupantReportsRealListener(t *testing.T) {
 		t.Errorf("端口期望 %d，实际 %d", port, occ.Port)
 	}
 }
+
+func TestDescribeOccupantIgnoresBlankAndInvalidPID(t *testing.T) {
+	_, err := describeOccupant(43189, func(int) ([]string, error) {
+		return []string{"", "pbad", "f3"}, nil
+	})
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("空行/坏 PID 且无进程名应视为不存在，实际 %v", err)
+	}
+	expected := errors.New("lsof failed")
+	_, err = describeOccupant(43189, func(int) ([]string, error) { return nil, expected })
+	if !errors.Is(err, expected) {
+		t.Fatalf("lsof 错误应原样返回，实际 %v", err)
+	}
+}

@@ -24,10 +24,7 @@ func Save(gate *Gate, path string) error {
 	gate.mu.Unlock()
 	sort.Strings(disabled)
 
-	data, err := json.Marshal(stateFile{Disabled: disabled})
-	if err != nil {
-		return err
-	}
+	data, _ := json.Marshal(stateFile{Disabled: disabled})
 	return atomicfile.WriteFile(path, data, 0600)
 }
 

@@ -82,43 +82,36 @@ func NewVerificationService(cfg VerificationConfig) *VerificationService {
 }
 
 // Verify performs the read-only check and only hands the credential to the
-// sink after identity and balance reads succeed.
+// sink after the official login identity and balance reads succeed.
 func (s *VerificationService) Verify(ctx context.Context, credential PendingCredential) VerificationOutcome {
 	credential.UID = strings.TrimSpace(credential.UID)
 	credential.EnterpriseID = strings.TrimSpace(credential.EnterpriseID)
 	if credential.Target != "workbuddy-cn" || credential.SessionID == "" ||
 		credential.AccessToken == "" || credential.UID == "" {
-		s.deletePending(credential.SessionID)
-		return failedVerification("登录结果不完整，请重新登录；未创建账号")
+		return s.discardPending(credential.SessionID,
+			failedVerification("登录结果不完整，请重新登录；未创建账号"))
 	}
 
 	domain, err := normalizeVerificationDomain(credential.Domain, s.baseURL)
 	if err != nil {
-		s.deletePending(credential.SessionID)
-		return failedVerification("登录域名无效，请重新登录；未创建账号")
+		return s.discardPending(credential.SessionID,
+			failedVerification("登录域名无效，请重新登录；未创建账号"))
 	}
 
-	accounts, err := s.readAccounts(ctx, credential, domain)
-	if err != nil {
-		return s.failure(credential.SessionID, err)
-	}
-	matched, ok := matchIdentity(credential, accounts)
-	if !ok {
-		s.deletePending(credential.SessionID)
-		return failedVerification("登录身份校验失败，请重新登录；未创建账号")
-	}
-	if credential.EnterpriseID == "" {
-		credential.EnterpriseID = strings.TrimSpace(matched.EnterpriseID)
+	// Magpie trusts the UID returned by /v2/plugin/login/account and uses the
+	// account list only to fill an enterprise id the login response omitted.
+	// Personal accounts need no account-list lookup at all.
+	if credential.EnterpriseID == "" && needsEnterpriseLookup(credential) {
+		if accounts, err := s.readAccounts(ctx, credential, domain); err == nil {
+			credential.EnterpriseID = inferEnterpriseID(credential, accounts)
+		}
 	}
 	if err := s.readBalance(ctx, credential, domain); err != nil {
 		return s.failure(credential.SessionID, err)
 	}
 
 	account := verifiedAccount(credential)
-	raw, err := json.Marshal(credential)
-	if err != nil {
-		return retryableVerification("无法准备受管凭据，请重试；未创建账号")
-	}
+	raw, _ := json.Marshal(credential)
 	if s.sink == nil {
 		return retryableVerification("账号存储暂不可用，请重试；未创建账号")
 	}
@@ -130,7 +123,7 @@ func (s *VerificationService) Verify(ctx context.Context, credential PendingCred
 	}
 	return VerificationOutcome{
 		Status:  LoginVerified,
-		Message: "只读验证通过，已添加账号；首次发现默认停用",
+		Message: "只读验证通过，已添加并启用账号",
 	}
 }
 
@@ -179,9 +172,6 @@ func (s *VerificationService) readBalance(ctx context.Context, credential Pendin
 func (s *VerificationService) readEnvelope(req *http.Request) (envelope, error) {
 	resp, err := s.client.Do(req)
 	if err != nil {
-		if req.Context().Err() != nil {
-			return envelope{}, errVerificationRetry
-		}
 		return envelope{}, errVerificationRetry
 	}
 	defer resp.Body.Close()
@@ -214,16 +204,15 @@ func (s *VerificationService) readEnvelope(req *http.Request) (envelope, error) 
 func (s *VerificationService) failure(sessionID string, err error) VerificationOutcome {
 	switch {
 	case errors.Is(err, errVerificationAuth):
-		s.deletePending(sessionID)
-		return VerificationOutcome{
+		return s.discardPending(sessionID, VerificationOutcome{
 			Status:  LoginReauthRequired,
 			Message: "登录态已失效，请重新登录；未创建账号",
-		}
+		})
 	case errors.Is(err, errVerificationRetry):
 		return retryableVerification("无法完成只读验证，请检查网络后重试；未创建账号")
 	default:
-		s.deletePending(sessionID)
-		return failedVerification("只读验证失败，请重新登录；未创建账号")
+		return s.discardPending(sessionID,
+			failedVerification("只读验证失败，请重新登录；未创建账号"))
 	}
 }
 
@@ -235,13 +224,25 @@ func retryableVerification(message string) VerificationOutcome {
 	return VerificationOutcome{Status: LoginRetryable, Message: message}
 }
 
-func (s *VerificationService) deletePending(sessionID string) {
+func (s *VerificationService) discardPending(
+	sessionID string,
+	outcome VerificationOutcome,
+) VerificationOutcome {
+	if err := s.deletePending(sessionID); err != nil {
+		outcome.Status = LoginRetryable
+		outcome.Message = strings.TrimSpace(outcome.Message) +
+			"；临时登录凭据清理失败，请重试"
+	}
+	return outcome
+}
+
+func (s *VerificationService) deletePending(sessionID string) error {
 	if s.store == nil || sessionID == "" {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = s.store.Delete(ctx, sessionID)
+	return ignoreMissingPendingCredential(s.store.Delete(ctx, sessionID))
 }
 
 func (s *VerificationService) deletePendingStrict(ctx context.Context, sessionID string) error {
@@ -271,25 +272,66 @@ func normalizeVerificationDomain(raw, baseURL string) (string, error) {
 	return strings.TrimSuffix(strings.ToLower(u.Host), "."), nil
 }
 
-func matchIdentity(credential PendingCredential, accounts []accountData) (accountData, bool) {
-	matches := 0
-	var matched accountData
+func needsEnterpriseLookup(credential PendingCredential) bool {
+	identityType := strings.ToLower(strings.TrimSpace(credential.IdentityType))
+	return identityType != "" && identityType != "personal"
+}
+
+func inferEnterpriseID(credential PendingCredential, accounts []accountData) string {
+	var mine []accountData
 	for _, account := range accounts {
 		account.UID = strings.TrimSpace(account.UID)
 		account.EnterpriseID = strings.TrimSpace(account.EnterpriseID)
-		if account.UID != credential.UID {
+		if account.UID != credential.UID || account.EnterpriseID == "" {
 			continue
 		}
-		if credential.EnterpriseID != "" && account.EnterpriseID != credential.EnterpriseID {
-			continue
+		mine = append(mine, account)
+	}
+
+	identityType := strings.ToLower(strings.TrimSpace(credential.IdentityType))
+	var sameType, lastLogin []accountData
+	for _, account := range mine {
+		if strings.ToLower(strings.TrimSpace(account.Type)) == identityType {
+			sameType = append(sameType, account)
 		}
-		matches++
-		matched = account
+		if jsonTruthy(account.LastLogin) {
+			lastLogin = append(lastLogin, account)
+		}
 	}
-	if matches != 1 {
-		return accountData{}, false
+	switch {
+	case len(sameType) == 1:
+		return sameType[0].EnterpriseID
+	case len(lastLogin) == 1:
+		return lastLogin[0].EnterpriseID
+	case len(mine) == 1:
+		return mine[0].EnterpriseID
+	default:
+		return ""
 	}
-	return matched, true
+}
+
+func jsonTruthy(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case float64:
+		return typed != 0
+	case []any:
+		return len(typed) != 0
+	case map[string]any:
+		return len(typed) != 0
+	default:
+		return false
+	}
 }
 
 func verifiedAccount(credential PendingCredential) VerifiedAccount {

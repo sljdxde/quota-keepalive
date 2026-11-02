@@ -64,3 +64,31 @@ func TestLoginCredentialStoreRemovesStaleFileAfterKeychainSave(t *testing.T) {
 		t.Error("Keychain 写入成功后不应保留旧的文件回退副本")
 	}
 }
+
+func TestLoginCredentialStoreDeleteReportsEveryBackendFailure(t *testing.T) {
+	keychainErr := errors.New("keychain delete failed")
+	fileErr := errors.New("file delete failed")
+	store := NewLoginCredentialStore(
+		scriptedSecretStore{deleteErr: keychainErr},
+		scriptedSecretStore{deleteErr: fileErr},
+	)
+	err := store.Delete(context.Background(), "session-1")
+	if !errors.Is(err, keychainErr) || !errors.Is(err, fileErr) {
+		t.Fatalf("应报告两个后端错误，实际 %v", err)
+	}
+}
+
+func TestLoginCredentialStoreDeleteStillTriesFileAfterKeychainFailure(t *testing.T) {
+	file := newFakeSecretStore()
+	file.values["qka/login-session-1"] = "secret"
+	store := NewLoginCredentialStore(
+		scriptedSecretStore{deleteErr: errors.New("keychain delete failed")},
+		file,
+	)
+	if err := store.Delete(context.Background(), "session-1"); err == nil {
+		t.Fatal("Keychain 删除失败应上报")
+	}
+	if _, ok := file.values["qka/login-session-1"]; ok {
+		t.Fatal("Keychain 删除失败时仍应删除文件回退副本")
+	}
+}

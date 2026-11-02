@@ -10,6 +10,7 @@ import (
 	"qka/internal/adapterwiring"
 	"qka/internal/doctor"
 	"qka/internal/engine"
+	"qka/internal/features"
 	"qka/internal/feed"
 	"qka/internal/logtail"
 	"qka/internal/mcp"
@@ -61,6 +62,7 @@ func (a *App) CallTool(ctx context.Context, name string, raw json.RawMessage) (a
 }
 
 func (a *App) tailLogs(ctx context.Context, args map[string]any) (any, error) {
+	a.pruneLogs(ctx)
 	f := logtail.Filter{
 		Target:    strArg(args, "target"),
 		AccountID: strArg(args, "account_id"),
@@ -90,11 +92,14 @@ func (a *App) runCheckin(ctx context.Context, args map[string]any) (any, error) 
 	if operation == "" {
 		operation = "checkin"
 	}
-	return a.runOperation(ctx, target, accountID, operation)
+	return a.RunOperationGuarded(ctx, target, accountID, operation)
 }
 
 // runOperation 是类型化的单账号×操作执行核心（checkin / keepalive 共用）。
 func (a *App) runOperation(ctx context.Context, target, accountID, operation string) (any, error) {
+	if !features.OperationAvailable(operation) {
+		return nil, features.ErrKeepaliveDisabled
+	}
 	if target == "workbuddy-cn" && operation == "checkin" {
 		return a.runWorkBuddyCheckin(ctx, accountID)
 	}
@@ -104,9 +109,6 @@ func (a *App) runOperation(ctx context.Context, target, accountID, operation str
 	}
 
 	key := engine.Key{Target: target, AccountID: accountID, Operation: engine.Operation(operation)}
-	if key.Operation == engine.Keepalive {
-		return a.engine.Run(ctx, key, adapterwiring.KeepaliveExecutor(host))
-	}
 
 	runner := adapterwiring.NewCheckinRunner(a.engine, host, a.now, "")
 	return runner.Run(ctx, key)
@@ -114,7 +116,8 @@ func (a *App) runOperation(ctx context.Context, target, accountID, operation str
 
 func (a *App) lastInvocation(ctx context.Context) time.Time {
 	var ts sql.NullString
-	_ = a.store.DB().QueryRowContext(ctx, `SELECT MAX(ts) FROM logs`).Scan(&ts)
+	_ = a.store.DB().QueryRowContext(ctx,
+		`SELECT MAX(ts) FROM logs WHERE operation <> ?`, "keepalive").Scan(&ts)
 	if !ts.Valid || ts.String == "" {
 		return time.Time{}
 	}

@@ -3,7 +3,13 @@ package cli
 import (
 	"context"
 	"net/http"
+
+	"qka/internal/app"
 )
+
+var runTrayGUI = func(built *app.App) error {
+	return built.GUI().Run()
+}
 
 // trayHandler 启动菜单栏 GUI：装配组合根，在后台 goroutine 启动 MCP HTTP 网关，
 // 然后在主 goroutine 进入 Wails 事件循环（托盘 + 面板 + 主窗口），阻塞直到退出。
@@ -27,8 +33,7 @@ func trayHandler(ctx context.Context, env *Env, args []string) (*Response, error
 	}
 	go func() { _ = httpSrv.ListenAndServe() }()
 
-	guiApp := built.GUI()
-	if runErr := guiApp.Run(); runErr != nil {
+	if runErr := runTrayGUI(built); runErr != nil {
 		_ = httpSrv.Shutdown(context.Background())
 		return nil, runErr
 	}

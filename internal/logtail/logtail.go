@@ -1,5 +1,5 @@
 // Package logtail 提供基于游标、有界、可筛选的日志查询（log_tail），
-// 以及 30 天日志滚动清理。
+// 以及默认 48 小时的日志滚动清理。
 package logtail
 
 import (
@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"qka/internal/features"
 )
 
 const (
@@ -15,8 +17,8 @@ const (
 	DefaultLimit = 50
 	// MaxLimit 是单次请求允许的最大条数。
 	MaxLimit = 200
-	// Retention 是日志保留时长。
-	Retention = 30 * 24 * time.Hour
+	// Retention 是日志保留时长。审计日志只保留最近 48 小时，避免长期堆积。
+	Retention = 48 * time.Hour
 )
 
 var (
@@ -74,8 +76,15 @@ func Tail(ctx context.Context, db *sql.DB, filter Filter, limit int, cursor int6
 		args = append(args, filter.AccountID)
 	}
 	if filter.Operation != "" {
-		where = append(where, "operation = ?")
-		args = append(args, filter.Operation)
+		if features.OperationAvailable(filter.Operation) {
+			where = append(where, "operation = ?")
+			args = append(args, filter.Operation)
+		} else {
+			where = append(where, "1 = 0")
+		}
+	} else if !features.KeepaliveAvailable {
+		where = append(where, "operation <> ?")
+		args = append(args, "keepalive")
 	}
 	if filter.State != "" {
 		where = append(where, "state = ?")
@@ -115,7 +124,7 @@ func Tail(ctx context.Context, db *sql.DB, filter Filter, limit int, cursor int6
 	return page, nil
 }
 
-// Prune 删除超过保留期（30 天）的日志。
+// Prune 删除超过保留期（48 小时）的日志。
 func Prune(ctx context.Context, db *sql.DB, now time.Time) error {
 	cutoff := now.Add(-Retention).UTC().Format(time.RFC3339)
 	_, err := db.ExecContext(ctx, "DELETE FROM logs WHERE ts < ?", cutoff)

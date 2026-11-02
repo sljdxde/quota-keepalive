@@ -89,17 +89,8 @@ func (a *App) registryAdapters() []registry.LoadedAdapter {
 }
 
 // capabilitiesFor 从适配器声明的能力推导目标操作（不硬编码产品清单）。
-func (a *App) capabilitiesFor(target string) []string {
-	ops := []string{"checkin"}
-	for _, l := range a.loaded {
-		if l.Manifest.ID != target {
-			continue
-		}
-		for _, c := range l.Manifest.Capabilities {
-			if c == "keepalive" {
-				ops = append(ops, "keepalive")
-			}
-		}
-	}
-	return ops
+// 保活已全局停用（features.KeepaliveAvailable=false），原 keepalive 追加分支
+// 是永远走不到的死代码，已删除；恢复保活能力时在这里重新接入。
+func (a *App) capabilitiesFor(string) []string {
+	return []string{"checkin"}
 }

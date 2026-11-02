@@ -1,6 +1,7 @@
 # WorkBuddy CN 浏览器登录协议基线
 
-基线：`@magpie-community/opencode-workbuddy-auth@0.1.47`。
+当前随包基线：`@magpie-community/opencode-workbuddy-auth@0.2.2`。
+文件名保留首个实现基线 `0.1.47`，后续协议差异以本文件内容为准。
 
 - 官方 API：`https://copilot.tencent.com`
 - 平台参数：`platform=workbuddy`
@@ -16,22 +17,24 @@
 3. `GET /v2/plugin/auth/token?state=...` 轮询 token；业务码 `11217`、HTTP `408`、HTTP `429` 表示继续等待。
 4. token 必须包含 `accessToken` 与 `refreshToken`。
 5. `GET /v2/plugin/login/account?state=...` 轮询身份；业务码 `12151`、HTTP `408`、HTTP `429` 表示继续等待。
-6. 身份必须包含 `uid`；随后只进入 `pending_verification`，不创建账号或来源。
+6. 身份必须包含 `uid`；`type`、`enterpriseId` 与展示名称来自该官方登录身份响应，随后只进入 `pending_verification`，不创建账号或来源。
 
 ## 只读验证
 
-浏览器授权拿到 token 后，QKA 只调用以下两个接口验证登录态：
+浏览器授权拿到 token 后，QKA 按 Magpie 的语义处理登录身份与只读余额：
 
-1. `GET /v2/plugin/accounts`，携带 `Authorization: Bearer` 与 `X-Domain`。
-2. `POST /billing/meter/get-user-resource-summary`，请求体为 `{}`，携带同一 `X-Domain`、`X-User-Id`、`X-Product: SaaS`、`X-IDE-Type: WorkBuddy`；企业身份另带 `X-Enterprise-Id` 与 `X-Tenant-Id`。
+1. 信任 `GET /v2/plugin/login/account?state=...` 返回的 `uid`，不要求该身份必须出现在 `/v2/plugin/accounts` 列表中。
+2. 登录响应已有 `enterpriseId` 时直接使用，不额外查询账号列表。
+3. 登录响应为非个人身份但缺少 `enterpriseId` 时，才调用 `GET /v2/plugin/accounts` 按 UID、身份类型、最近登录与唯一候选推断企业 ID；该查询失败时按 Magpie 语义保留为空，不因此阻断登录验证。
+4. `POST /billing/meter/get-user-resource-summary`，请求体为 `{}`，携带 `Authorization: Bearer`、`X-Domain`、`X-User-Id`、`X-Product: SaaS`、`X-IDE-Type: WorkBuddy`；企业身份另带 `X-Enterprise-Id` 与 `X-Tenant-Id`。
 
-`token.domain` 是请求域的权威来源；缺失时回退官方 API host，并统一规范化后用于两个请求。`/v2/plugin/accounts` 不返回 domain，因此不得假设存在可用于比对的 domain 字段。
+`token.domain` 是请求域的权威来源；缺失时回退官方 API host，并统一规范化后用于验证请求。`/v2/plugin/accounts` 不返回 domain，因此不得假设存在可用于比对的 domain 字段。
 
-验证通过要求两个请求均为 2xx、业务码为 0，且 accounts 中存在唯一匹配本地 `uid` 的账号；本地 `enterpriseId` 存在时还必须匹配。通过后才写入 `managed` 来源、默认停用的账号和受管 token bundle，并删除待验证凭据。
+验证通过要求官方登录身份完整，且余额请求为 2xx、业务码为 0。通过后才写入 `managed` 来源、默认启用的账号和受管 token bundle，并删除待验证凭据。
 
 - 401/403：清理待验证凭据，状态为 `reauth_required`，不创建账号或来源。
 - 网络失败、408、429、5xx 或暂时无法解析：保留待验证凭据，状态为 `retryable`；重试复用原凭据，不重新打开登录页。
-- 身份缺失或不一致：不创建账号或来源，状态为 `failed`。
+- 官方登录身份缺失：不创建账号或来源，状态为 `failed`。
 - 验证阶段绝不调用 `/v2/billing/meter/checkin-activity-status` 或 `/v2/billing/meter/daily-checkin`。
 
 ## 受管来源刷新
@@ -74,6 +77,13 @@ QKA 在受控测试中允许 `127.0.0.1` 的 HTTP 假目标；安装态使用腾
 - `credit_delayed=true` 表示奖励尚未到账，即使 `credit` 非零或 `message` 非空，也只能记录为“已领取，待确认”。
 - 领取成功但没有任何明确回执时，只能记录为“已领取，待确认”，不得写成“已到账”。
 - 同一账号同一北京日进入 `claimed`、`done`、`ineligible`、`inactive` 或 `manual_required` 后，后续手动或宿主调用不再发起领取请求；单个账号失败不得中止其他账号。
+
+额度展示与签到结论分开：
+
+- 本次领取额度来自领取回执的 `credit`；`done` 的今日额度来自状态接口的 `today_credit`。字段缺失表示未知，不伪造为 `0`。
+- 当前剩余额度优先读取只读资源摘要的 `Packages[].CycleTotalCapacity`、`CycleUsedCapacity` 和 `CycleRemainCapacity`：有总量时按“总量 − 已用”计算，无总量时累加剩余容量；没有任何可识别容量字段时保持未知。
+- 正常签到、今日已领取和只读复查都会尝试读取当前额度；额度读取失败不得把已经成功的领取改写成失败。
+- 账号页“刷新状态”只调用签到状态和资源摘要，不调用 `daily-checkin`。
 
 ## 应用内签到兜底与复查
 

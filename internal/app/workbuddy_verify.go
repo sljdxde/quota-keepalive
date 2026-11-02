@@ -70,5 +70,10 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 		}
 		return err
 	}
+	if err := s.accounts.EstablishManagedSource(
+		ctx, account.Target, account.AccountID, account.SourceID,
+	); err != nil {
+		return err
+	}
 	return nil
 }

@@ -12,10 +12,7 @@ const pairingFile = "pairing.json"
 
 // Save 将配对凭据哈希写入 <configDir>/pairing.json（0600）。
 func Save(configDir string, p *Pairing) error {
-	data, err := p.MarshalJSON()
-	if err != nil {
-		return err
-	}
+	data, _ := p.MarshalJSON()
 	if err := atomicfile.EnsureDir(configDir, 0o700); err != nil {
 		return err
 	}

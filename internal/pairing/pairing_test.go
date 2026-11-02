@@ -2,6 +2,8 @@ package pairing
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -85,5 +87,42 @@ func TestStoredStateHasHashesOnly(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte(plain)) {
 		t.Errorf("存储中不得包含明文，实际 %s", data)
+	}
+}
+
+type errorReader struct{ err error }
+
+func (r errorReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestPairingErrorPaths(t *testing.T) {
+	readErr := errors.New("rand")
+	p := New().withRand(errorReader{err: readErr})
+	if _, err := p.Issue("host"); !errors.Is(err, readErr) {
+		t.Fatalf("随机源失败应返回错误，实际 %v", err)
+	}
+	if _, err := Load([]byte("{")); err == nil {
+		t.Fatal("非法 JSON 应导致加载失败")
+	}
+	if _, err := newToken(bytes.NewReader([]byte("short"))); err == nil {
+		t.Fatal("随机字节不足应返回错误")
+	}
+}
+
+func TestMarshalPairingUsesStableHashMap(t *testing.T) {
+	p := New().withRand(bytes.NewReader(make([]byte, 32)))
+	token, err := p.Issue("host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := p.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]hostRecord
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["host"].Hash != hashToken(token) || bytes.Contains(raw, []byte(token)) {
+		t.Fatalf("持久化应只存哈希，实际 %s", raw)
 	}
 }

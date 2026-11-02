@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>quota-keepalive · 信号谱</title>
+  <style>
+    :root {
+      --void:#030910; --panel:#07111d; --panel-2:#0a1725; --grid:#10283a;
+      --line:#1b3a51; --ink:#e7f3f7; --muted:#a0bdc9; --faint:#7f9aa8;
+      --cyan:#42b8ff; --mint:#18d8a3; --orange:#ff865e; --red:#ff5b63;
+      --sans:"Avenir Next","PingFang SC",sans-serif; --mono:"SFMono-Regular","Roboto Mono","PingFang SC",monospace;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; color:var(--ink); background:var(--void);
+      font:14px/1.45 var(--sans); overflow-x:hidden;
+    }
+    body:before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        linear-gradient(rgba(66,184,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(66,184,255,.04) 1px, transparent 1px),
+        radial-gradient(circle at 22% 10%, rgba(24,216,163,.08), transparent 30rem),
+        radial-gradient(circle at 82% 70%, rgba(66,184,255,.06), transparent 25rem);
+      background-size:32px 32px, 32px 32px, auto, auto;
+    }
+    button, input, select { font:inherit; }
+    button { cursor:pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
+    .app { position:relative; z-index:1; display:grid; grid-template-columns:68px minmax(0,1fr); min-height:100vh; }
+    .rail {
+      border-right:1px solid var(--line); background:rgba(3,9,16,.78);
+      display:flex; flex-direction:column; align-items:center; padding:14px 0;
+    }
+    .logo {
+      display:grid; place-items:center; width:38px; height:38px; color:var(--void);
+      background:var(--mint); font:900 12px/1 var(--mono); letter-spacing:-.08em;
+    }
+    .rail-line { width:1px; flex:1; margin:16px 0; background:linear-gradient(transparent,var(--line),transparent); }
+    .rail-label { writing-mode:vertical-rl; color:var(--faint); font:8px var(--mono); letter-spacing:.2em; }
+    .content { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 292px; }
+    .main { min-width:0; padding:18px 20px 32px 22px; }
+    .head {
+      display:flex; align-items:flex-end; justify-content:space-between; gap:18px;
+      border-bottom:1px solid var(--line); padding:2px 0 13px;
+    }
+    .kicker { color:var(--mint); font:700 9px/1.3 var(--mono); letter-spacing:.18em; }
+    h1 { margin:4px 0 0; font:600 clamp(26px,3vw,38px)/1.05 var(--sans); letter-spacing:-.045em; }
+    .head-meta { display:flex; align-items:center; gap:10px; color:var(--muted); font:10px var(--mono); }
+    .live { display:flex; align-items:center; gap:6px; color:var(--mint); }
+    .live:before { content:""; width:6px; height:6px; border-radius:50%; background:var(--mint); box-shadow:0 0 12px var(--mint); }
+    .prototype { padding:3px 6px; border:1px solid #593e30; color:var(--orange); font-size:8px; letter-spacing:.08em; }
+    .control-deck {
+      display:grid; grid-template-columns:minmax(210px,1.2fr) minmax(220px,1fr) auto;
+      gap:0; border-bottom:1px solid var(--line); background:rgba(7,17,29,.66);
+    }
+    .deck-cell { min-height:82px; padding:12px 15px; border-right:1px solid var(--line); }
+    .deck-cell:last-child { border-right:0; }
+    .deck-kicker { color:var(--faint); font:8px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .scheduler-line { display:flex; align-items:center; gap:9px; margin-top:8px; }
+    .power {
+      width:46px; height:28px; border:1px solid var(--line); border-radius:2px; background:#0b1b2a; padding:3px;
+      text-align:left;
+    }
+    .power:before { content:""; display:block; width:18px; height:18px; background:#2b4253; transition:transform .18s ease, background .18s ease; }
+    .power[aria-pressed="true"] { border-color:var(--mint); background:rgba(24,216,163,.1); }
+    .power[aria-pressed="true"]:before { transform:translateX(18px); background:var(--mint); box-shadow:0 0 12px rgba(24,216,163,.55); }
+    .scheduler-line label { color:var(--muted); font:10px var(--mono); }
+    .scheduler-line input {
+      width:42px; height:30px; border:1px solid var(--line); border-radius:1px;
+      color:var(--ink); background:var(--panel); font:700 13px var(--mono); text-align:center;
+    }
+    .scheduler-line select {
+      height:30px; border:1px solid var(--line); border-radius:1px;
+      color:var(--ink); background:var(--panel); font:700 11px var(--mono);
+    }
+    .next-big { display:flex; align-items:baseline; gap:8px; margin-top:7px; }
+    .next-big strong { color:var(--cyan); font:700 25px/1 var(--mono); letter-spacing:-.06em; text-shadow:0 0 20px rgba(66,184,255,.2); }
+    .next-big span { color:var(--muted); font-size:10px; }
+    .next-rule { display:flex; gap:4px; margin-top:7px; }
+    .next-rule i { flex:1; height:3px; background:var(--line); }
+    .next-rule i.on { background:var(--mint); }
+    .action-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; margin-top:8px; }
+    .action {
+      min-width:72px; min-height:36px; padding:0 8px; border:1px solid var(--line); border-radius:1px;
+      color:var(--muted); background:transparent; font:700 10px var(--mono);
+    }
+    .action:hover { border-color:var(--cyan); color:var(--ink); }
+    .action.primary { color:var(--void); border-color:var(--mint); background:var(--mint); }
+    .action.warn { color:var(--orange); border-color:#5c3326; background:rgba(255,134,94,.05); }
+    .signal-head { display:flex; align-items:baseline; justify-content:space-between; margin:14px 0 7px; color:var(--muted); font:9px var(--mono); letter-spacing:.08em; }
+    .signal-head strong { color:var(--ink); font:600 15px var(--sans); letter-spacing:0; }
+    .signals { border-top:1px solid var(--line); }
+    .signal {
+      border-bottom:1px solid var(--line); background:rgba(7,17,29,.56);
+      position:relative;
+    }
+    .signal:before {
+      content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--channel,var(--cyan)); opacity:.85;
+    }
+    .signal.provider-off { --channel:#334452; background:rgba(4,10,16,.5); }
+    .signal-head-row {
+      display:grid; grid-template-columns:34px minmax(160px,1.1fr) minmax(150px,.9fr) 82px 48px 24px;
+      gap:10px; align-items:center; min-height:58px; padding:8px 8px 8px 13px;
+    }
+    .signal-head-row:hover { background:rgba(66,184,255,.025); }
+    .provider-icon { width:30px; height:30px; overflow:hidden; border:1px solid var(--line); }
+    .provider-icon svg { display:block; width:100%; height:100%; }
+    .provider-name strong { display:block; color:var(--ink); font:600 13px var(--sans); }
+    .provider-name small { display:block; color:var(--muted); font:9px/1.45 var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .provider-wave { position:relative; height:32px; overflow:hidden; }
+    .provider-wave:before {
+      content:""; position:absolute; inset:0;
+      background:repeating-linear-gradient(90deg,transparent 0 21px,rgba(66,184,255,.08) 21px 22px);
+    }
+    .provider-wave svg { position:relative; display:block; width:100%; height:100%; }
+    .provider-status { color:var(--muted); font:700 9px var(--mono); text-align:right; white-space:nowrap; }
+    .provider-status.ok { color:var(--mint); }
+    .provider-status.warn { color:var(--orange); }
+    .power.small { width:40px; height:24px; }
+    .power.small:before { width:14px; height:14px; }
+    .power.small[aria-pressed="true"]:before { transform:translateX(16px); }
+    .expand { width:24px; height:24px; border:0; color:var(--faint); background:transparent; font:16px var(--mono); }
+    .signal.open .expand { transform:rotate(90deg); }
+    .channels { display:none; border-top:1px solid var(--line); }
+    .signal.open .channels { display:block; }
+    .channel {
+      display:grid; grid-template-columns:minmax(160px,1fr) minmax(220px,1.6fr) 132px;
+      gap:14px; align-items:center; min-height:74px; padding:8px 10px 8px 47px;
+      border-bottom:1px solid rgba(27,58,81,.6); background:rgba(10,23,37,.38);
+    }
+    .channel:last-child { border-bottom:0; }
+    .channel-id strong { display:block; font:600 11.5px var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .channel-id span { display:block; margin-top:3px; color:var(--muted); font:9px/1.4 var(--mono); }
+    .quota-wave { min-width:0; }
+    .quota-label { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+    .quota-label strong { color:var(--ink); font:700 11px var(--mono); white-space:nowrap; }
+    .quota-label span { color:var(--muted); font:8.5px var(--mono); white-space:nowrap; }
+    .quota-wave svg { display:block; width:100%; height:30px; margin-top:3px; overflow:visible; }
+    .quota-wave .axis { stroke:rgba(66,184,255,.13); stroke-width:1; }
+    .quota-wave .area { fill:var(--channel); opacity:.08; }
+    .quota-wave .wave { fill:none; stroke:var(--channel); stroke-width:1.5; vector-effect:non-scaling-stroke; filter:drop-shadow(0 0 4px color-mix(in srgb,var(--channel) 45%,transparent)); stroke-dasharray:280; stroke-dashoffset:280; animation:draw 1.2s .25s forwards ease-out; }
+    .quota-wave .node { fill:var(--channel); }
+    .channel-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+    .task {
+      min-height:32px; border:1px solid var(--line); border-radius:1px; background:#091522;
+      color:var(--muted); font:700 9px var(--mono);
+    }
+    .task span { display:block; margin-top:2px; color:var(--faint); font-size:8px; }
+    .task[aria-pressed="true"]:first-child { color:var(--orange); border-color:#6a3b2c; background:rgba(255,134,94,.06); }
+    .task[aria-pressed="true"]:last-child { color:var(--mint); border-color:#245d51; background:rgba(24,216,163,.06); }
+    .task:disabled { opacity:.35; cursor:not-allowed; }
+    .ticker {
+      border-left:1px solid var(--line); background:rgba(3,9,16,.76); min-width:0;
+    }
+    .ticker-inner { position:sticky; top:0; padding:18px 16px; }
+    .ticker h2 { margin:0; font-size:14px; }
+    .ticker .sub { margin:4px 0 14px; color:var(--muted); font:9px/1.5 var(--mono); }
+    .ticker-status {
+      border:1px solid var(--line); padding:11px; background:var(--panel);
+    }
+    .ticker-status .line1 { display:flex; align-items:center; justify-content:space-between; color:var(--mint); font:700 9px var(--mono); }
+    .ticker-status strong { display:block; margin-top:8px; font-size:15px; }
+    .ticker-status p { margin:2px 0 0; color:var(--muted); font-size:10px; }
+    .scope { display:grid; gap:2px; margin-top:8px; }
+    .scope i { height:3px; background:var(--line); }
+    .scope i.on { background:var(--mint); }
+    .feed { margin-top:14px; }
+    .feed-event {
+      display:grid; grid-template-columns:38px minmax(0,1fr); gap:8px;
+      padding:8px 0 9px; border-bottom:1px solid rgba(27,58,81,.7);
+    }
+    .feed-event time { color:var(--faint); font:8.5px/1.4 var(--mono); }
+    .feed-copy { position:relative; padding-left:10px; }
+    .feed-copy:before { content:""; position:absolute; left:0; top:4px; width:5px; height:5px; border-radius:50%; background:var(--mint); box-shadow:0 0 7px rgba(24,216,163,.65); }
+    .feed-event.warn .feed-copy:before { background:var(--orange); box-shadow:0 0 7px rgba(255,134,94,.5); }
+    .feed-event.queue .feed-copy:before { background:var(--cyan); box-shadow:0 0 7px rgba(66,184,255,.55); }
+    .feed-copy strong { display:block; font:600 9.5px/1.35 var(--sans); }
+    .feed-copy span { display:block; color:var(--muted); font-size:8.5px; line-height:1.4; margin-top:1px; }
+    .ticker-foot { margin-top:14px; color:var(--faint); font:8px/1.55 var(--mono); }
+    .toast {
+      position:fixed; left:50%; bottom:20px; z-index:80; transform:translate(-50%,16px);
+      max-width:calc(100% - 26px); padding:10px 14px; border:1px solid var(--mint);
+      color:var(--mint); background:#06100f; font:10px/1.5 var(--mono);
+      opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+    @keyframes draw { to { stroke-dashoffset:0; } }
+    @keyframes scan { from { transform:translateY(-10px); } to { transform:translateY(160px); } }
+    @media (prefers-reduced-motion:reduce) { *, *:before, *:after { animation:none !important; transition:none !important; } }
+    @media (max-width:1050px) {
+      .content { grid-template-columns:1fr; }
+      .ticker { border-left:0; border-top:1px solid var(--line); }
+      .ticker-inner { position:static; }
+      .feed { display:grid; grid-template-columns:1fr 1fr; gap:0 18px; }
+    }
+    @media (max-width:760px) {
+      .app { grid-template-columns:36px minmax(0,1fr); }
+      .logo { width:24px; height:34px; font-size:9px; }
+      .rail-label { display:none; }
+      .main { padding:12px 10px 24px; }
+      .head { display:block; }
+      .head-meta { margin-top:8px; flex-wrap:wrap; }
+      .control-deck { grid-template-columns:1fr; }
+      .deck-cell { border-right:0; border-bottom:1px solid var(--line); }
+      .deck-cell:last-child { border-bottom:0; }
+      .action-grid { gap:6px; }
+      .action { min-height:44px; }
+      .signal-head-row { grid-template-columns:30px minmax(0,1fr) 38px 24px; padding:9px 7px 9px 12px; }
+      .provider-wave, .provider-status { display:none; }
+      .power.small { grid-column:3; grid-row:1 / span 2; }
+      .expand { grid-column:4; grid-row:1 / span 2; }
+      .channel { grid-template-columns:1fr; gap:8px; padding:11px 9px 12px 42px; }
+      .channel-actions { grid-template-columns:1fr 1fr; }
+      .task { min-height:42px; }
+      .feed { grid-template-columns:1fr; }
+    }
+    .kicker, .prototype, .head-meta, .deck-kicker, .scheduler-line label, .scheduler-line select,
+    .next-big span, .action, .signal-head, .provider-name small, .provider-status, .power,
+    .expand, .channel-id strong, .channel-id span, .quota-label strong, .quota-label span,
+    .task, .ticker .sub, .ticker-status .line1, .ticker-status p, .feed-event time,
+    .feed-copy strong, .feed-copy span, .ticker-foot, .toast, .rail-label { font-size:12px; }
+    .ticker-status strong { font-size:16px; }
+    .kicker, .channel-id span { font-size:14px; }
+    .task span { font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-hidden="true">
+      <div class="logo">QK</div>
+      <div class="rail-line"></div>
+      <div class="rail-label">SIGNAL WATCH / 2026</div>
+    </aside>
+
+    <div class="content">
+      <main class="main">
+        <header class="head">
+          <div>
+            <div class="kicker">QUOTA KEEPALIVE / SIGNAL FIELD</div>
+            <h1>额度信号谱</h1>
+          </div>
+          <div class="head-meta">
+            <span class="prototype">交互原型 · 未接后台</span>
+            <span class="live">LIVE SNAPSHOT</span>
+            <span id="clock">10:18:42 CST</span>
+          </div>
+        </header>
+
+        <section class="control-deck" aria-label="统一调度">
+          <div class="deck-cell">
+            <div class="deck-kicker">Unified schedule / 统一周期</div>
+            <div class="scheduler-line">
+              <button class="power" id="master" type="button" aria-pressed="true" aria-label="启用统一调度"></button>
+              <label for="every">每</label>
+              <input id="every" type="number" min="1" max="24" value="1" inputmode="numeric">
+              <select id="unit" aria-label="时间单位"><option value="hour">小时</option><option value="minute">分钟</option></select>
+              <label>扫描</label>
+            </div>
+          </div>
+          <div class="deck-cell">
+            <div class="deck-kicker">Next pulse / 下次脉冲</div>
+            <div class="next-big"><strong id="next">11:18</strong><span>8 streams · 12 channels</span></div>
+            <div class="next-rule"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="deck-cell">
+            <div class="deck-kicker">Manual pulse / 手动触发</div>
+            <div class="action-grid">
+              <button class="action" id="detect" type="button">检测</button>
+              <button class="action primary" id="checkin" type="button">全部签到</button>
+              <button class="action warn" id="keepalive" type="button">全部保活</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="signal-head"><strong>供应商信号带</strong><span id="stream-count">8 STREAMS · 12 CHANNELS</span></div>
+        <section class="signals" id="signals"></section>
+      </main>
+
+      <aside class="ticker">
+        <div class="ticker-inner">
+          <h2>事件脉冲</h2>
+          <p class="sub">RECENT EXECUTION / 最近执行</p>
+          <div class="ticker-status">
+            <div class="line1"><span>LAST SCAN COMPLETE</span><span id="event-count">6 REC</span></div>
+            <strong>7 / 12 已签到</strong>
+            <p>保活 0 · 失败 0 · 2 个账号待处理</p>
+            <div class="scope" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="feed" id="feed"></div>
+          <p class="ticker-foot">波形来自最近 12 次额度采样；单次采样只显示一个节点。签到与保活状态来自本机快照。</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const colors = {workbuddy:"#18d8a3",codearts:"#ff865e",qoder:"#42b8ff",minimax:"#f0bd5e",trae:"#ff5b63",zcode:"#8ac6ff",zen:"#95e6c2",wbai:"#6ea6ff"};
+    const providers = [
+      {id:"workbuddy-ai",name:"WorkBuddy AI",icon:"wbai",enabled:false,checkin:false,keepalive:false,model:"Hy3",accounts:[
+        {label:"yu***@gmail.com",result:"none",quota:"100 / 100",note:"仅展示",history:[100,99.97,99.97,99.97,77.14,32.15,0,0]}
+      ]},
+      {id:"workbuddy",name:"WorkBuddy",icon:"wb",enabled:true,checkin:true,keepalive:true,model:"Hy3",accounts:[
+        {label:"睡懒觉的薛定谔",result:"claimed",quota:"1012.84 / 3511",note:"+100 · 连续 20 天",history:[70.97,70.87,70.69,70.62,70.55,70.48,70.42,70.42,70.31,70.31,71.15,71.15]},
+        {label:"189****7198",result:"claimed",quota:"0 / 2200",note:"+100 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"zcode",name:"ZCode",icon:"zcode",enabled:true,checkin:true,keepalive:false,model:"GLM-5.3",accounts:[
+        {label:"ZCode",result:"none",quota:"1599 / 2000",note:"周额度 1599 / 10000",history:[44.2,88.84,67.9,79.28,24.85,84.97,21,84.2,20.05,84.01,20.05,84.01]}
+      ]},
+      {id:"qoder-cn",name:"Qoder CN",icon:"qoder",enabled:true,checkin:true,keepalive:false,model:"Qwen3.8-Flash",accounts:[
+        {label:"019f06b7-9...3e6b1f",result:"done",quota:"400 / 400",note:"服务端确认",history:[100,100,90.2,60,35.8,9.6,0,0,20,20,25,25]}
+      ]},
+      {id:"opencode-zen-free",name:"OpenCode Zen Free",icon:"zen",enabled:false,checkin:false,keepalive:false,model:"Big Pickle",accounts:[
+        {label:"account-1",result:"none",quota:"额度待检测",note:"仅展示",history:[]}
+      ]},
+      {id:"trae-cn",name:"Trae CN",icon:"trae",enabled:true,checkin:true,keepalive:false,model:"Seed-2.1-Turbo",accounts:[
+        {label:"用户1029134478",result:"ineligible",quota:"额度待检测",note:"设备校验不符合条件",history:[37.75,34.77,31.59,26.28,21.51,15.99,13.91,10.75,5.27,3.07,0,0]},
+        {label:"用户2507796751",result:"ineligible",quota:"223.1 / 2500",note:"稍后再试 (9074)",history:[96.04,95.75,95.42,95.17,94.86,94.53,94.13,92.88,92.28,91.19,91.08,91.08]}
+      ]},
+      {id:"minimax-code",name:"MiniMax Code",icon:"minimax",enabled:true,checkin:true,keepalive:false,model:"M3.1-Flash",accounts:[
+        {label:"MiniMax857156",result:"claimed",quota:"0.08 / 800",note:"+400 · 连续 2 天",history:[99.98,99.99]},
+        {label:"MiniMax687749",result:"claimed",quota:"0 / 800",note:"+400 · 连续 2 天",history:[100,100]}
+      ]},
+      {id:"codearts",name:"CodeArts",icon:"codearts",enabled:true,checkin:true,keepalive:false,model:"DeepSeek-V4.1-Flash",accounts:[
+        {label:"iam::49b62...749283",result:"claimed",quota:"615 / 4700",note:"+100 积分",history:[96.11,95.17,94.31,93.36,92,90.96,90.16,89.44,88.49,87.82,87.35,86.92]},
+        {label:"iam::01a18...284743",result:"claimed",quota:"0 / 4700 · 200 即将过期",note:"+100 积分",history:[100,100]}
+      ]}
+    ];
+    const icons = {
+      wbai:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#2563EB"/><path d="M16 5.5l2.9 7.6 7.6 2.9-7.6 2.9-2.9 7.6-2.9-7.6L5.5 16l7.6-2.9z" fill="#fff"/></svg>',
+      wb:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0EA371"/><path d="M5.5 16h5l3-8 4.5 16 3-8h5.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      zcode:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#171717"/><path d="M8.5 8.5h15l-9.4 11h9.4v4h-15l9.4-11H8.5z" fill="#fff"/></svg>',
+      qoder:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#F05A28"/><circle cx="15" cy="15" r="7.5" fill="none" stroke="#fff" stroke-width="3"/><path d="M18.5 19.5L24 25" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>',
+      zen:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#18181B"/><path d="M8 11l6 5-6 5" fill="none" stroke="#7CF7C4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 21h7" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/></svg>',
+      trae:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#111"/><path d="M7 9h18L7 23z" fill="#37E0B0"/><path d="M16 9h9v9z" fill="#fff"/></svg>',
+      minimax:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#E5482F"/><path d="M6 23V10l6 7 4-7 4 7 6-7v13" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      codearts:'<svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#CF0A2C"/><path d="M23.5 10.5a9 9 0 100 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><path d="M14 13l5 3-5 3z" fill="#fff"/></svg>'
+    };
+    const events = [
+      {time:"10:05",title:"检测完成",detail:"8 个供应商 · 12 个账号",tone:""},
+      {time:"09:34",title:"CodeArts 签到成功",detail:"2 / 2 · 服务端确认",tone:""},
+      {time:"09:34",title:"Qoder CN 签到成功",detail:"1 / 1 · 服务端确认",tone:""},
+      {time:"09:34",title:"Trae CN 未签到",detail:"2 个账号不符合设备条件",tone:"warn"},
+      {time:"07:43",title:"MiniMax Code 签到成功",detail:"2 / 2 · 各 +400",tone:""},
+      {time:"07:43",title:"WorkBuddy 签到成功",detail:"2 / 2 · 各 +100",tone:""}
+    ];
+    const $ = id => document.getElementById(id);
+    const esc = v => String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+    function pathFor(history,w=320,h=30) {
+      if (!history.length) return null;
+      const min = Math.min(...history), max = Math.max(...history), span = max-min||1;
+      return history.map((v,i) => [3+i/Math.max(1,history.length-1)*(w-6), h-4-(v-min)/span*(h-9)]);
+    }
+
+    function wave(history, provider) {
+      const pts = pathFor(history);
+      const color = colors[provider] || "#42b8ff";
+      if (!pts) return `<svg viewBox="0 0 320 30" preserveAspectRatio="none"><line class="axis" x1="3" y1="26" x2="317" y2="26"/><text x="5" y="17" fill="#4e6b7c" font-size="8" font-family="monospace">NO SAMPLE</text></svg>`;
+      const line = pts.map((p,i)=>`${i?"L":"M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+      const area = `${line} L${pts.at(-1)[0].toFixed(1)},28 L${pts[0][0].toFixed(1)},28 Z`;
+      const last = pts.at(-1);
+      return `<svg viewBox="0 0 320 30" preserveAspectRatio="none" aria-label="额度信号"><line class="axis" x1="3" y1="26" x2="317" y2="26"/><path class="area" d="${area}"/><path class="wave" d="${line}" style="stroke:${color}"/><circle class="node" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.2" style="fill:${color}"/></svg>`;
+    }
+
+    function providerMini(p) {
+      const all = p.accounts.flatMap(a=>a.history);
+      if (!all.length) return `<svg viewBox="0 0 180 32" preserveAspectRatio="none"><line x1="2" y1="29" x2="178" y2="29" stroke="#1b3a51"/></svg>`;
+      const pts = pathFor(all.slice(-28),180,32);
+      const line = pts.map((v,i)=>`${i?"L":"M"}${v[0].toFixed(1)},${v[1].toFixed(1)}`).join(" ");
+      return `<svg viewBox="0 0 180 32" preserveAspectRatio="none"><polyline points="${pts.map(v=>`${v[0].toFixed(1)},${v[1].toFixed(1)}`).join(" ")}" fill="none" stroke="${colors[p.id]||"#42b8ff"}" stroke-width="1.2"/></svg>`;
+    }
+
+    function render() {
+      $("signals").innerHTML = providers.map((p,pi)=>{
+        const signed = p.accounts.filter(a=>["claimed","done"].includes(a.result)).length;
+        const warn = p.accounts.filter(a=>a.result==="ineligible").length;
+        return `<section class="signal ${pi===1?"open":""} ${p.enabled?"":"provider-off"}" data-provider="${p.id}" style="--channel:${colors[p.id]||"#42b8ff"}">
+          <div class="signal-head-row">
+            <span class="provider-icon">${icons[p.icon]}</span>
+            <div class="provider-name"><strong>${esc(p.name)}</strong><small>${p.accounts.length} CH · ${p.keepalive?"CHECKIN + KEEPALIVE":p.checkin?"CHECKIN":"DISPLAY ONLY"} · ${esc(p.model)}</small></div>
+            <div class="provider-wave">${providerMini(p)}</div>
+            <div class="provider-status ${warn?"warn":signed?"ok":""}">${warn?`${warn} ALERT`:signed?`${signed}/${p.accounts.length} OK`:"STANDBY"}</div>
+            <button class="power small provider-power" type="button" aria-pressed="${p.enabled}" aria-label="${p.enabled?"停用":"启用"} ${esc(p.name)}"></button>
+            <button class="expand" type="button" aria-label="展开账号">›</button>
+          </div>
+          <div class="channels">
+            ${p.accounts.map((a,ai)=>`<div class="channel">
+              <div class="channel-id"><strong>${esc(a.label)}</strong><span>CH ${String(ai+1).padStart(2,"0")} · ${esc(a.note)} · ${a.result==="claimed"?"CLAIMED":a.result==="done"?"CONFIRMED":a.result==="ineligible"?"BLOCKED":"IDLE"}</span></div>
+              <div class="quota-wave"><div class="quota-label"><strong>${esc(a.quota)}</strong><span>${a.history.length>1?"LAST 12 SAMPLES":"1 SAMPLE"}</span></div>${wave(a.history,p.id)}</div>
+              <div class="channel-actions">
+                <button class="task checkin-toggle" type="button" data-account="${pi}-${ai}" aria-pressed="${a.checkinEnabled!==false&&p.checkin}" ${p.checkin?"":"disabled"}>签到<span>${a.checkinEnabled!==false&&p.checkin?"ON":"OFF"}</span></button>
+                <button class="task keepalive-toggle" type="button" data-account="${pi}-${ai}" aria-pressed="${a.keepaliveEnabled===true}" ${p.keepalive?"":"disabled"}>保活<span>${a.keepaliveEnabled===true?"ON":"OFF"}</span></button>
+              </div>
+            </div>`).join("")}
+          </div>
+        </section>`;
+      }).join("");
+      renderFeed();
+      updateNext();
+    }
+
+    function renderFeed() {
+      $("feed").innerHTML = events.slice(0,7).map(e=>`<div class="feed-event ${e.tone||""}"><time>${esc(e.time)}</time><div class="feed-copy"><strong>${esc(e.title)}</strong><span>${esc(e.detail)}</span></div></div>`).join("");
+      $("event-count").textContent = `${events.length} REC`;
+    }
+
+    function nowTime() {
+      return new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
+    }
+
+    function updateNext() {
+      const value = Math.max(1,Math.min(24,Number($("every").value)||1));
+      const unit = $("unit").value;
+      const at = new Date(Date.now()+(unit==="hour"?3600000:60000)*value);
+      $("next").textContent = new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(at);
+    }
+
+    let toastTimer = 0;
+    function toast(message) {
+      const box = $("toast");
+      box.textContent = message;
+      box.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=>box.classList.remove("show"),3000);
+    }
+
+    function addEvent(title,detail,tone="") {
+      events.unshift({time:nowTime(),title,detail,tone});
+      renderFeed();
+    }
+
+    $("signals").addEventListener("click",event=>{
+      const signal = event.target.closest(".signal");
+      if (!signal) return;
+      const index = providers.findIndex(p=>p.id===signal.dataset.provider);
+      if (event.target.closest(".expand")) {
+        signal.classList.toggle("open");
+        return;
+      }
+      if (event.target.closest(".provider-power")) {
+        providers[index].enabled = !providers[index].enabled;
+        signal.classList.toggle("provider-off",!providers[index].enabled);
+        event.target.closest(".provider-power").setAttribute("aria-pressed",String(providers[index].enabled));
+        addEvent(`${providers[index].name} 信号${providers[index].enabled?"接入":"断开"}`,providers[index].enabled?"进入统一调度":"暂停自动执行",providers[index].enabled?"":"warn");
+        return;
+      }
+      const task = event.target.closest(".task");
+      if (!task) return;
+      if (!providers[index].enabled) {
+        toast("该供应商信号已断开，请先启用。");
+        return;
+      }
+      const [pi,ai] = task.dataset.account.split("-").map(Number);
+      const account = providers[pi].accounts[ai];
+      const isCheckin = task.classList.contains("checkin-toggle");
+      const key = isCheckin ? "checkinEnabled" : "keepaliveEnabled";
+      const current = isCheckin ? account.checkinEnabled!==false : account.keepaliveEnabled===true;
+      account[key] = !current;
+      task.setAttribute("aria-pressed",String(!current));
+      task.querySelector("span").textContent = !current ? "ON" : "OFF";
+      addEvent(`${providers[pi].name} · ${account.label}`,`${isCheckin?"签到":"保活"}通道${!current?"接入":"断开"}`,!current?"":"warn");
+    });
+
+    $("master").addEventListener("click",event=>{
+      const on = event.currentTarget.getAttribute("aria-pressed")!=="true";
+      event.currentTarget.setAttribute("aria-pressed",String(on));
+      addEvent(`统一调度${on?"启用":"停用"}`,on?"周期扫描开始监听":"所有自动脉冲暂停",on?"":"warn");
+    });
+    $("every").addEventListener("input",updateNext);
+    $("unit").addEventListener("change",updateNext);
+    $("detect").addEventListener("click",()=>{addEvent("一键检测已加入原型队列","未发送真实请求","queue");toast("一键检测：原型操作，未连接后台。")});
+    $("checkin").addEventListener("click",()=>{addEvent("全部签到已加入原型队列","未发送真实请求","queue");toast("全部签到：原型操作，未连接后台。")});
+    $("keepalive").addEventListener("click",()=>{addEvent("全部保活已加入原型队列","真实请求可能消耗积分，原型不执行","queue");toast("全部保活：原型操作，未发送真实请求。")});
+    setInterval(()=>{$("clock").textContent = new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date())+" CST";},1000);
+    render();
+  </script>
+</body>
+</html>

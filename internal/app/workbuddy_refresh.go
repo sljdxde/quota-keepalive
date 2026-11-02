@@ -53,7 +53,7 @@ func (a *App) newWorkBuddyManagedSession(
 	if a.accounts == nil || a.credentials == nil {
 		return nil, errors.New("账号或凭据服务未接线")
 	}
-	account, err := a.accounts.Get(ctx, "workbuddy-cn", accountID)
+	account, err := getWorkBuddyAccount(a.accounts, ctx, "workbuddy-cn", accountID)
 	if err != nil {
 		return nil, err
 	}
