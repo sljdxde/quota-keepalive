@@ -36,6 +36,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install bun (adapter runtime used by real tests)
+        shell: pwsh
+        run: |
+          irm bun.sh/install.ps1 | iex
+          "$env:USERPROFILE\.bun\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          & "$env:USERPROFILE\.bun\bin\bun.exe" --version
+
       - name: Unit tests
         shell: pwsh
         run: go test ./... -count=1
