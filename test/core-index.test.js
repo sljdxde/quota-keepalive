@@ -15,7 +15,7 @@ import {
 import pluginModule from "../index.js"
 import { PLUGIN_DIR } from "../src/live-options.js"
 import { resolveKeepaliveOptions } from "../src/config.js"
-import { appendDailyLog, readDailyLogs } from "../src/log.js"
+import { appendDailyLog, readDailyLogs, refreshLogPathFor } from "../src/log.js"
 import { readSchedule, scheduleSignature } from "../src/schedule.js"
 import { tempDir } from "./support.js"
 
@@ -129,6 +129,20 @@ describe("log MCP tool", () => {
     const output = await tool.execute({ day: "2026-10-30", status: "success", limit: "10" })
     expect(output).toContain("Skipped 1 malformed")
     expect(output).toContain("provider=workbuddy")
+    await appendDailyLog({
+      logPath: refreshLogPathFor(logPath),
+      entry: {
+        ts: "2026-10-30T01:01:00.000Z",
+        day: "2026-10-30",
+        provider: "refresh-provider",
+        event: "refresh",
+        status: "success",
+        outcome: "refreshed",
+      },
+    })
+    const refreshOutput = await tool.execute({ file: "refresh" })
+    expect(refreshOutput).toContain("provider=refresh-provider")
+    expect(refreshOutput).not.toContain("provider=workbuddy")
     await expect(tool.execute({ limit: "bad" })).rejects.toThrow("integer")
   })
 })
@@ -397,11 +411,15 @@ describe("quota refresher", () => {
       run: async () => ({ run: "refresh-ok", status: "success", summary: "完成" }),
     })
     expect(success.status).toBe("success")
-    expect((await readDailyLogs({ logPath: config.logPath })).records.some((record) =>
+    expect((await readDailyLogs({ logPath: config.refreshLogPath })).records.some((record) =>
       record.event === "refresh" &&
       record.provider === "quota-keepalive" &&
       record.status === "success"
     )).toBe(true)
+    expect((await readDailyLogs({
+      logPath: config.logPath,
+      includePrevious: false,
+    })).records.some((record) => record.event === "refresh")).toBe(false)
 
     const failed = await refreshQuotasNow({
       config,
@@ -410,6 +428,12 @@ describe("quota refresher", () => {
     })
     expect(failed.status).toBe("failed")
     expect(failed.error).toContain("secret")
+    const failedLogs = (await readDailyLogs({
+      logPath: config.logPath,
+      includePrevious: false,
+    })).records
+    expect(failedLogs.some((record) => record.event === "refresh" && record.status === "failed")).toBe(true)
+    expect(failedLogs.find((record) => record.event === "refresh").error).not.toContain("secret")
 
     const unreadableCommand = await refreshQuotasNow({
       config,

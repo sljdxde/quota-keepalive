@@ -3,9 +3,11 @@ import { isAbsolute, join } from "node:path"
 import { defaultCommandPath, defaultStatePath } from "./common.js"
 import {
   DEFAULT_LOG_MAX_BYTES,
+  DEFAULT_REFRESH_LOG_MAX_BYTES,
   MAX_LOG_MAX_BYTES,
   MIN_LOG_MAX_BYTES,
   defaultLogPath,
+  refreshLogPathFor,
 } from "./log.js"
 import { DEFAULT_PROBE_MESSAGE } from "./keepalive.js"
 import {
@@ -67,6 +69,7 @@ export function resolveKeepaliveOptions(raw) {
     : DEFAULT_KEEPALIVE.scheduleAction
   const keepaliveEnabled = source.keepaliveEnabled === true
   const scheduleAction = keepaliveEnabled ? requestedScheduleAction : "checkin"
+  const logPath = absolutePath(source.logPath, defaultLogPath())
   return {
     model,
     modelPreferences: modelPreferences(source.modelPreferences),
@@ -89,10 +92,17 @@ export function resolveKeepaliveOptions(raw) {
     watchOptions: source.watchOptions !== false,
     statePath: absolutePath(source.statePath, defaultStatePath()),
     commandPath: absolutePath(source.commandPath, defaultCommandPath()),
-    logPath: absolutePath(source.logPath, defaultLogPath()),
+    logPath,
     logMaxBytes: integerIn(
       source.logMaxBytes,
       DEFAULT_LOG_MAX_BYTES,
+      MIN_LOG_MAX_BYTES,
+      MAX_LOG_MAX_BYTES,
+    ),
+    refreshLogPath: absolutePath(source.refreshLogPath, refreshLogPathFor(logPath)),
+    refreshLogMaxBytes: integerIn(
+      source.refreshLogMaxBytes,
+      DEFAULT_REFRESH_LOG_MAX_BYTES,
       MIN_LOG_MAX_BYTES,
       MAX_LOG_MAX_BYTES,
     ),

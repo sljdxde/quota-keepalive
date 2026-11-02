@@ -301,6 +301,76 @@ describe("run history and quota carry-forward", () => {
     expect(buildTodayRunHistory(records, "2026-10-28")).toEqual([])
   })
 
+  test("keeps early successful runs ahead of refresh noise and skipped runs", async () => {
+    const tmp = await dir()
+    const logPath = tmp.path("daily.log.jsonl")
+    const snapshotPath = tmp.path("ui", "data.js")
+    const day = "2026-10-30"
+    const base = Date.parse(`${day}T00:00:00.000Z`)
+    const records = [
+      {
+        version: 1,
+        ts: new Date(base + 60_000).toISOString(),
+        day,
+        provider: "workbuddy",
+        event: "checkin",
+        status: "success",
+        outcome: "claimed",
+        run: "early-checkin",
+      },
+      {
+        version: 1,
+        ts: new Date(base + 120_000).toISOString(),
+        day,
+        provider: "quota-keepalive",
+        event: "checkin",
+        status: "success",
+        outcome: "success",
+        run: "early-checkin",
+        message: "checked in",
+      },
+    ]
+    for (let index = 0; index < 20; index++) {
+      records.push({
+        version: 1,
+        ts: new Date(base + 180_000 + index * 1_000).toISOString(),
+        day,
+        provider: "quota-keepalive",
+        event: "schedule",
+        status: "skipped",
+        outcome: "skipped",
+        run: `skipped-${index}`,
+      })
+    }
+    for (let index = 0; index < 2_600; index++) {
+      records.push({
+        version: 1,
+        ts: new Date(base + 3_600_000 + index * 1_000).toISOString(),
+        day,
+        provider: "workbuddy",
+        event: "refresh",
+        status: "success",
+        outcome: "refreshed",
+        run: `refresh-${index}`,
+      })
+    }
+    await writeFile(logPath, `${records.map(JSON.stringify).join("\n")}\n`, "utf8")
+
+    const payload = await writeDailySnapshot({
+      configHome: tmp.path("config"),
+      logPath,
+      snapshotPath,
+    })
+    const successful = payload.runHistory.find((group) => group.id === "early-checkin")
+    expect(successful).toMatchObject({
+      event: "checkin",
+      status: "success",
+      successes: 1,
+    })
+    expect(successful?.children).toHaveLength(1)
+    expect(payload.records.every((record) => record.event !== "refresh")).toBe(true)
+  })
+
   test("carries only missing quotas from a previous snapshot", () => {
     const inventory = {
       providers: [{

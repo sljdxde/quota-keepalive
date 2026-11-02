@@ -8,6 +8,7 @@ import {
   accountTag,
   appendDailyLog,
   newRunId,
+  refreshLogTarget,
   safeLogText,
 } from "./log.js"
 import { providerEnabled } from "./preferences.js"
@@ -309,8 +310,7 @@ export async function runRefresh({
       message: classified.message,
     })
     await log({
-      logPath: config.logPath,
-      logMaxBytes: config.logMaxBytes,
+      ...refreshLogTarget(config, classified.status),
       entry: {
         ts: nowIso(),
         day: beijingDay(),
@@ -347,9 +347,11 @@ export async function runRefresh({
 }
 
 async function logCommand(config, entry, run = newRunId()) {
+  const target = entry.event === "refresh"
+    ? refreshLogTarget(config, entry.status)
+    : { logPath: config.logPath, logMaxBytes: config.logMaxBytes }
   await appendDailyLog({
-    logPath: config.logPath,
-    logMaxBytes: config.logMaxBytes,
+    ...target,
     entry: {
       ts: nowIso(),
       day: beijingDay(),

@@ -106,7 +106,7 @@
 
     <section class="summary" id="summary" aria-label="今日摘要"></section>
 
-    <section class="section">
+    <section class="section providers-section">
       <div class="section-head">
         <div>
           <p class="eyebrow">PROVIDERS</p>
@@ -115,7 +115,17 @@
         <div class="section-tools">
           <span class="section-note" id="provider-count"></span>
           <span class="section-note">启用项每 1 分钟刷新额度</span>
-          <button class="section-action" id="providers-toggle" type="button" hidden>全部折叠</button>
+          <span class="section-actions">
+            <button
+              class="section-action"
+              id="providers-disable-all"
+              type="button"
+              title="停用全部启用中的供应商"
+              aria-label="停用全部启用中的供应商"
+              hidden
+            >全部停用</button>
+            <button class="section-action" id="providers-toggle" type="button" hidden>全部折叠</button>
+          </span>
         </div>
       </div>
       <div class="providers" id="providers"></div>

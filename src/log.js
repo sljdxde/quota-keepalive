@@ -5,6 +5,7 @@ import { magpieConfigHome, sanitize } from "./common.js"
 
 export const LOG_VERSION = 1
 export const DEFAULT_LOG_MAX_BYTES = 2 * 1024 * 1024
+export const DEFAULT_REFRESH_LOG_MAX_BYTES = 512 * 1024
 export const MIN_LOG_MAX_BYTES = 64 * 1024
 export const MAX_LOG_MAX_BYTES = 50 * 1024 * 1024
 
@@ -25,6 +26,38 @@ const beijingTime = new Intl.DateTimeFormat("sv-SE", {
 
 export function defaultLogPath() {
   return join(magpieConfigHome(), "workbuddy-daily.log.jsonl")
+}
+
+export function refreshLogPathFor(logPath) {
+  if (typeof logPath !== "string" || !logPath) {
+    return join(magpieConfigHome(), "workbuddy-daily.refresh.log.jsonl")
+  }
+  if (logPath.endsWith(".log.jsonl")) {
+    return `${logPath.slice(0, -10)}.refresh.log.jsonl`
+  }
+  return logPath.endsWith(".jsonl")
+    ? `${logPath.slice(0, -6)}.refresh.jsonl`
+    : `${logPath}.refresh`
+}
+
+export function defaultRefreshLogPath() {
+  return refreshLogPathFor(defaultLogPath())
+}
+
+export function refreshLogTarget(config, status) {
+  if (status === "failed") {
+    return {
+      logPath: config?.logPath,
+      logMaxBytes: config?.logMaxBytes,
+    }
+  }
+  const logPath = typeof config?.refreshLogPath === "string" && isAbsolute(config.refreshLogPath)
+    ? config.refreshLogPath
+    : refreshLogPathFor(config?.logPath)
+  const logMaxBytes = Number.isInteger(config?.refreshLogMaxBytes) && config.refreshLogMaxBytes > 0
+    ? config.refreshLogMaxBytes
+    : DEFAULT_REFRESH_LOG_MAX_BYTES
+  return { logPath, logMaxBytes }
 }
 
 export function newRunId(now = new Date()) {
@@ -159,6 +192,7 @@ export async function readDailyLogs({
   includePrevious = true,
   day = "",
   status = "",
+  events = [],
   limit = 50,
 }) {
   if (typeof logPath !== "string" || !isAbsolute(logPath)) {
@@ -166,6 +200,9 @@ export async function readDailyLogs({
   }
   const base = resolve(logPath)
   const files = includePrevious ? [`${base}.1`, base] : [base]
+  const allowedEvents = new Set(
+    Array.isArray(events) ? events.map((event) => String(event || "")).filter(Boolean) : [],
+  )
   const records = []
   let malformed = 0
   let order = 0
@@ -193,6 +230,7 @@ export async function readDailyLogs({
         malformed++
         continue
       }
+      if (allowedEvents.size && !allowedEvents.has(record.event)) continue
       if (day && record.day !== day) continue
       if (status && record.status !== status) continue
       records.push({ record, order: order++ })

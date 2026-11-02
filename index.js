@@ -1,10 +1,14 @@
 import { resolveKeepaliveOptions } from "./src/config.js"
 import { beijingDay } from "./src/common.js"
 import {
+  appendDailyLog,
   formatLogRecords,
+  newRunId,
   readDailyLogs,
+  refreshLogPathFor,
+  refreshLogTarget,
+  safeLogText,
 } from "./src/log.js"
-import { appendDailyLog, newRunId } from "./src/log.js"
 import { readLivePluginOptions } from "./src/live-options.js"
 import { consumePendingCommand, runCommand } from "./src/runner.js"
 import { snapshotWarning, writeDailySnapshot } from "./src/snapshot.js"
@@ -199,19 +203,21 @@ export async function refreshQuotasNow({
       error: error?.message || String(error),
     }
   }
+  const status = typeof result?.status === "string" ? result.status : "failed"
+  const summary = safeLogText(result?.summary, "", 480)
+  const error = safeLogText(result?.error, "", 480)
   await log({
-    logPath: config.logPath,
-    logMaxBytes: config.logMaxBytes,
+    ...refreshLogTarget(config, status),
     entry: {
       ts: new Date().toISOString(),
       day: beijingDay(),
       provider: "quota-keepalive",
       run: result.run || newRunId(),
       event: "refresh",
-      status: result.status,
-      outcome: result.status,
-      message: result.summary,
-      ...(result.error ? { error: result.error } : {}),
+      status,
+      outcome: status,
+      message: summary,
+      ...(error ? { error } : {}),
     },
   }).catch(() => {})
   await writeDailySnapshot({
@@ -234,6 +240,10 @@ export function startQuotaRefresher({
   const signature = JSON.stringify([
     config.configHome || "",
     config.commandPath,
+    config.logPath,
+    config.logMaxBytes,
+    config.refreshLogPath,
+    config.refreshLogMaxBytes,
     config.providerPreferences,
   ])
   const previous = globalThis[QUOTA_REFRESHER]
@@ -304,7 +314,7 @@ export function logTool(config) {
   return {
     logs: {
       description:
-        "Reads recent quota check-in and keepalive logs. Logs use hashed account tags and never include tokens, full account ids, or model replies.",
+        "Reads recent quota task and refresh diagnostic logs. Logs use hashed account tags and never include tokens, full account ids, or model replies.",
       args: {
         type: "object",
         properties: {
@@ -327,9 +337,9 @@ export function logTool(config) {
           },
           file: {
             type: "string",
-            enum: ["all", "current", "previous"],
+            enum: ["all", "current", "previous", "refresh", "refresh-previous"],
             default: "all",
-            description: "Read the current log, its previous rotated log, or both.",
+            description: "Read task logs, successful/skipped refresh diagnostics, or one rotated file.",
           },
         },
         additionalProperties: false,
@@ -346,14 +356,18 @@ export function logTool(config) {
           throw new Error("status must be started, success, failed, or skipped")
         }
         const file = args.file || "all"
-        if (!["all", "current", "previous"].includes(file)) {
-          throw new Error("file must be all, current, or previous")
+        if (!["all", "current", "previous", "refresh", "refresh-previous"].includes(file)) {
+          throw new Error("file must be all, current, previous, refresh, or refresh-previous")
         }
 
-        const previousOnly = file === "previous"
+        const refresh = file === "refresh" || file === "refresh-previous"
+        const previousOnly = file === "previous" || file === "refresh-previous"
+        const targetPath = refresh
+          ? config.refreshLogPath || refreshLogPathFor(config.logPath)
+          : config.logPath
         const result = await readDailyLogs({
-          logPath: previousOnly ? `${config.logPath}.1` : config.logPath,
-          includePrevious: file === "all",
+          logPath: previousOnly ? `${targetPath}.1` : targetPath,
+          includePrevious: file === "all" || file === "refresh",
           day: args.day || "",
           status: args.status || "",
           limit,

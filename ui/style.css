@@ -448,6 +448,7 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
 }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .section-tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
+.section-actions { display: flex; align-items: center; gap: 8px; margin-left: 2px; }
 .section-note { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .section-action {
   flex: none;
@@ -1187,6 +1188,10 @@ h2 { margin-bottom: 2px; font-size: 16px; letter-spacing: -.015em; }
   .schedule-controls { justify-content: flex-start; }
   .section { padding: 14px; }
   .section-tools { flex-wrap: wrap; justify-content: flex-end; gap: 6px 10px; }
+  .providers-section .section-head { align-items: flex-start; flex-wrap: wrap; }
+  .providers-section .section-head > div:first-child { flex: 1 1 100%; }
+  .providers-section .section-tools { width: 100%; justify-content: flex-start; }
+  .providers-section .section-actions { margin-left: auto; }
   .logs-section .section-head { flex-wrap: wrap; align-items: flex-start; }
   .logs-section .section-head > div:first-child { flex: 1 1 100%; }
   .logs-section .section-tools { width: 100%; justify-content: space-between; }

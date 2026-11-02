@@ -53,6 +53,7 @@
   }
   let snapshot = window.DailyKeepaliveSnapshot || null
   let busy = false
+  let providerBulkBusy = false
   let activeConfirm = false
   let confirmRequest = null
   let refreshTimer = 0
@@ -707,10 +708,17 @@
   function updateProviderToggle() {
     const details = [...$("providers").querySelectorAll("details.provider[data-provider-id]")]
     const button = $("providers-toggle")
+    const disableAll = $("providers-disable-all")
+    const providers = Array.isArray(snapshot?.providers) ? snapshot.providers : []
+    const enabledCount = providers.filter((provider) =>
+      String(provider?.id || "") && providerOn(provider)).length
     const open = details.some((item) => item.open)
     button.hidden = details.length === 0
     button.disabled = details.length === 0
     button.textContent = open ? "全部折叠" : "全部展开"
+    disableAll.hidden = enabledCount === 0
+    disableAll.disabled = providerBulkBusy || enabledCount === 0
+    disableAll.setAttribute("aria-busy", providerBulkBusy ? "true" : "false")
   }
 
   function renderProviders(data) {
@@ -863,6 +871,46 @@
       toast(enabled ? "供应商任务已启用" : "供应商任务已停用")
     } catch (error) {
       toast(`保存供应商状态失败：${error?.message || error}`, "bad")
+    }
+  }
+
+  async function disableAllProviders() {
+    if (providerBulkBusy) return
+    const providers = Array.isArray(snapshot?.providers) ? snapshot.providers : []
+    const enabledProviders = providers.filter((provider) =>
+      String(provider?.id || "") && providerOn(provider))
+    if (!enabledProviders.length) return
+
+    providerBulkBusy = true
+    updateProviderToggle()
+    const previousPreferences = providerPreferences
+    const previousPageOptions = pageOptions
+    try {
+      const options = await readPageOptions()
+      const next = normalizePreferences(options.providerPreferences)
+      for (const provider of enabledProviders) {
+        const id = String(provider?.id || "")
+        if (!id) continue
+        next[id] = {
+          ...normalizePreferences(next[id]),
+          enabled: false,
+        }
+      }
+      providerPreferences = next
+      renderProviders(snapshot)
+      await persistPageOptions(stagePageOptions((latest) => ({
+        ...latest,
+        providerPreferences: next,
+      })))
+      toast(`已停用全部启用中的供应商（${enabledProviders.length} 个）`)
+    } catch (error) {
+      providerPreferences = previousPreferences
+      pageOptions = previousPageOptions
+      renderProviders(snapshot)
+      toast(`停用全部供应商失败：${error?.message || error}`, "bad")
+    } finally {
+      providerBulkBusy = false
+      updateProviderToggle()
     }
   }
 
@@ -1527,6 +1575,9 @@
         providerOpen.set(item.dataset.providerId, open)
       }
       updateProviderToggle()
+    })
+    $("providers-disable-all").addEventListener("click", () => {
+      disableAllProviders().catch((error) => toast(`停用全部供应商失败：${error?.message || error}`, "bad"))
     })
     $("logs").addEventListener("toggle", (event) => {
       const details = event.target

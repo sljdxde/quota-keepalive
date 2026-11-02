@@ -119,6 +119,8 @@ describe("option resolution", () => {
       commandPath: "/tmp/command.json",
       logPath: "relative.log",
       logMaxBytes: 64 * 1024,
+      refreshLogPath: "/tmp/refresh.log.jsonl",
+      refreshLogMaxBytes: 128 * 1024,
       snapshotPath: "/tmp/page.js",
       schedulePath: "/tmp/schedule.json",
     })
@@ -139,6 +141,8 @@ describe("option resolution", () => {
       watchOptions: false,
       statePath: join(homedir(), "state.json"),
       commandPath: "/tmp/command.json",
+      refreshLogPath: "/tmp/refresh.log.jsonl",
+      refreshLogMaxBytes: 128 * 1024,
       snapshotPath: "/tmp/page.js",
       schedulePath: "/tmp/schedule.json",
     })
@@ -164,6 +168,8 @@ describe("option resolution", () => {
       commandPath: "relative",
       logPath: 1,
       logMaxBytes: 1,
+      refreshLogPath: 1,
+      refreshLogMaxBytes: 1,
       snapshotPath: null,
     })
     expect(options).toMatchObject({
@@ -184,6 +190,8 @@ describe("option resolution", () => {
       watchOptions: true,
     })
     expect(options.logPath.endsWith("workbuddy-daily.log.jsonl")).toBe(true)
+    expect(options.refreshLogPath.endsWith("workbuddy-daily.refresh.log.jsonl")).toBe(true)
+    expect(options.refreshLogMaxBytes).toBe(512 * 1024)
     expect(options.snapshotPath.endsWith("ui/data.js")).toBe(true)
     expect(resolveKeepaliveOptions(null).watchOptions).toBe(true)
     expect(resolveKeepaliveOptions([]).scheduleAction).toBe("checkin")

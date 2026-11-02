@@ -28,6 +28,8 @@ import {
   formatLogRecords,
   newRunId,
   readDailyLogs,
+  refreshLogPathFor,
+  refreshLogTarget,
   rotateIfNeeded,
   safeLogText,
 } from "../src/log.js"
@@ -253,6 +255,28 @@ describe("live plugin options", () => {
 })
 
 describe("structured logs", () => {
+  test("routes refresh successes and failures to bounded log targets", () => {
+    const config = {
+      logPath: "/tmp/daily.log.jsonl",
+      logMaxBytes: 2 * 1024 * 1024,
+      refreshLogPath: "/tmp/daily.refresh.log.jsonl",
+      refreshLogMaxBytes: 512 * 1024,
+    }
+    expect(refreshLogPathFor(config.logPath)).toBe(config.refreshLogPath)
+    expect(refreshLogTarget(config, "success")).toEqual({
+      logPath: config.refreshLogPath,
+      logMaxBytes: config.refreshLogMaxBytes,
+    })
+    expect(refreshLogTarget(config, "skipped")).toEqual({
+      logPath: config.refreshLogPath,
+      logMaxBytes: config.refreshLogMaxBytes,
+    })
+    expect(refreshLogTarget(config, "failed")).toEqual({
+      logPath: config.logPath,
+      logMaxBytes: config.logMaxBytes,
+    })
+  })
+
   test("sanitizes account text and ids", () => {
     expect(accountTag("")).toBe("")
     expect(accountTag("account")).toMatch(/^acct-[a-f0-9]{12}$/)
@@ -338,6 +362,37 @@ describe("structured logs", () => {
       "rotate.jsonl",
       "rotate.jsonl.1",
     ])
+  })
+
+  test("filters event types before applying the read limit", async () => {
+    const tmp = await dir("quota-log-events-")
+    const path = tmp.path("daily.jsonl")
+    const lines = [
+      {
+        version: 1,
+        ts: "2026-10-30T00:00:00.000Z",
+        day: "2026-10-30",
+        provider: "workbuddy",
+        event: "checkin",
+        status: "success",
+      },
+      {
+        version: 1,
+        ts: "2026-10-30T00:01:00.000Z",
+        day: "2026-10-30",
+        provider: "workbuddy",
+        event: "refresh",
+        status: "success",
+      },
+    ]
+    await writeFile(path, `${lines.map(JSON.stringify).join("\n")}\n`, "utf8")
+
+    expect((await readDailyLogs({ logPath: path, limit: 1 })).records[0].event).toBe("refresh")
+    expect((await readDailyLogs({
+      logPath: path,
+      events: ["checkin"],
+      limit: 1,
+    })).records[0].event).toBe("checkin")
   })
 
   test("covers filesystem failure handling without touching real logs", async () => {

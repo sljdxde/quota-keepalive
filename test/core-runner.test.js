@@ -34,6 +34,8 @@ function cfg(tmp, overrides = {}) {
     configHome: tmp.path("config"),
     logPath: tmp.path("daily.log.jsonl"),
     logMaxBytes: 64 * 1024,
+    refreshLogPath: tmp.path("daily.refresh.log.jsonl"),
+    refreshLogMaxBytes: 64 * 1024,
     statePath: tmp.path("state.json"),
     snapshotPath: tmp.path("ui", "data.js"),
     commandPath: tmp.path("command.json"),
@@ -328,6 +330,47 @@ describe("quota refresh", () => {
       summary: "额度刷新已跳过：该供应商已停用。",
     })
     expect(calls).toHaveLength(2)
+  })
+
+  test("keeps successful refresh diagnostics out of the main task log", async () => {
+    const tmp = await dir()
+    const config = cfg(tmp)
+    await mkdir(config.configHome, { recursive: true })
+    await writeFile(join(config.configHome, "plugin-providers.json"), JSON.stringify([
+      { id: "provider", name: "Provider", accounts: [{ key: "a" }] },
+    ]), "utf8")
+
+    await runRefresh({
+      config,
+      provider: "provider",
+      runMagpieJson: async () => result(JSON.stringify([{ provider: "provider" }])),
+    })
+    await runRefresh({
+      config,
+      provider: "provider",
+      runMagpieJson: async () => result(JSON.stringify([{ error: "token=secret" }])),
+    })
+    await runRefresh({
+      config,
+      provider: "qoder-cn",
+      runMagpieJson: async () => result("", {
+        ok: false,
+        stderr: "no subscription, plan or key balance of qoder-cn · magpie quota lists them",
+      }),
+    })
+
+    const main = (await readDailyLogs({
+      logPath: config.logPath,
+      includePrevious: false,
+    })).records
+    const diagnostics = (await readDailyLogs({
+      logPath: config.refreshLogPath,
+      includePrevious: false,
+    })).records
+    expect(main.map((record) => record.status)).toEqual(["failed"])
+    expect(diagnostics.map((record) => record.status)).toEqual(["success", "skipped"])
+    expect(diagnostics.every((record) => record.event === "refresh")).toBe(true)
+    expect(main[0].error).not.toContain("secret")
   })
 
   test("writes refreshed cards to the page snapshot when quotas.json is empty", async () => {
@@ -668,7 +711,7 @@ describe("page commands", () => {
     expect(command.provider).toBe("provider")
     expect(command.accounts[0].provider).toBe("provider")
     const records = await waitFor(async () => {
-      const recent = (await readDailyLogs({ logPath: config.logPath })).records
+      const recent = (await readDailyLogs({ logPath: config.refreshLogPath })).records
       return recent.some((record) =>
         record.event === "refresh" &&
         record.provider === "daily-keepalive"
@@ -679,6 +722,10 @@ describe("page commands", () => {
       record.provider === "provider" &&
       record.status === "success"
     )).toBe(true)
+    expect((await readDailyLogs({
+      logPath: config.logPath,
+      includePrevious: false,
+    })).records.some((record) => record.event === "refresh")).toBe(false)
   })
 
   test("passes a single-account manual task through the page command queue", async () => {

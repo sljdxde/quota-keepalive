@@ -5,6 +5,7 @@ import {
   defaultLogPath,
   formatLogRecords,
   readDailyLogs,
+  refreshLogPathFor,
 } from "../src/log.js"
 
 const STATUSES = new Set(["started", "success", "failed", "skipped"])
@@ -16,6 +17,7 @@ Options:
   --limit N          Show the last N matching records (default 50, max 500)
   --day YYYY-MM-DD   Filter by Beijing date
   --status STATUS    started, success, failed, or skipped
+  --refresh          Read the separate successful/skipped refresh log
   --file PATH        Read one exact log file instead of current plus previous
   --json             Print JSONL instead of human-readable lines
   -h, --help         Show this help
@@ -31,6 +33,10 @@ function parse(args) {
     if (arg === "-h" || arg === "--help") return { help: true }
     if (arg === "--json") {
       out.json = true
+      continue
+    }
+    if (arg === "--refresh") {
+      out.refresh = true
       continue
     }
     if (!["--limit", "--day", "--status", "--file"].includes(arg)) {
@@ -63,7 +69,8 @@ async function main() {
     console.log(usage())
     return
   }
-  const logPath = args.file || process.env.WORKBUDDY_DAILY_LOG || defaultLogPath()
+  const basePath = process.env.WORKBUDDY_DAILY_LOG || defaultLogPath()
+  const logPath = args.file || (args.refresh ? refreshLogPathFor(basePath) : basePath)
   const result = await readDailyLogs({
     logPath,
     includePrevious: !args.file,

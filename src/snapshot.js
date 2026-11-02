@@ -214,8 +214,21 @@ function publicRunGroup(group) {
   return summary
 }
 
+function groupHasResult(group) {
+  const status = String(group?.status || "")
+  return status === "success" || status === "failed" ||
+    Number(group?.successes) > 0 || Number(group?.failures) > 0
+}
+
 export function buildRunHistory(records) {
-  return groupRunHistory(records).slice(0, MAX_RUN_GROUPS)
+  const groups = groupRunHistory(records)
+  const selected = groups.filter(groupHasResult).slice(0, MAX_RUN_GROUPS)
+  const included = new Set(selected)
+  for (const group of groups) {
+    if (selected.length >= MAX_RUN_GROUPS) break
+    if (!included.has(group)) selected.push(group)
+  }
+  return selected.sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0))
 }
 
 export function buildTodayRunHistory(records, day = beijingDay()) {
@@ -309,10 +322,10 @@ export async function writeDailySnapshot(options = {}) {
   const result = await readDailyLogs({
     logPath: source,
     includePrevious: true,
+    events: [...PAGE_LOG_EVENTS],
     limit: MAX_READ_RECORDS,
   })
   const records = result.records
-    .filter((record) => PAGE_LOG_EVENTS.has(record?.event))
     .map(publicRecord)
   let inventory = await readInventory({
     ...(configHome ? { configHome } : {}),

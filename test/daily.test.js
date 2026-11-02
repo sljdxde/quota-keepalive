@@ -685,7 +685,14 @@ describe.serial("Logs, scheduling, and page", () => {
   test("the page exposes detection, check-in, scheduling, and logs while keepalive is paused", async () => {
     const root = new URL("..", import.meta.url)
     const html = await readFile(new URL("ui/index.html", root), "utf8")
-    for (const id of ["detect", "checkin", "schedule-save", "logs", "logs-all-toggle"]) {
+    for (const id of [
+      "detect",
+      "checkin",
+      "schedule-save",
+      "providers-disable-all",
+      "logs",
+      "logs-all-toggle",
+    ]) {
       expect(html).toContain(`id="${id}"`)
     }
     expect(html).not.toContain('id="keepalive"')
@@ -711,6 +718,11 @@ describe.serial("Logs, scheduling, and page", () => {
     expect(app).toContain("lastModel")
     expect(app).toContain("accountNotes")
     expect(app).toContain("provider-states")
+    expect(html).toContain("全部停用")
+    expect(html).toContain('aria-label="停用全部启用中的供应商"')
+    expect(app).toContain("async function disableAllProviders()")
+    expect(app).toContain("providerBulkBusy")
+    expect(app).toContain("enabled: false")
     expect(app).toContain("QuotaKeepaliveStatus")
     expect(app).toContain("logHasResult")
     expect(app).toContain("查看当天全部日志")
