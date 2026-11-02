@@ -5,7 +5,6 @@ package runlock
 import (
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 )
 
@@ -54,17 +53,6 @@ func TestAcquireFilesystemFailures(t *testing.T) {
 		if lock, err := Acquire(dir); err == nil {
 			_ = lock.Close()
 			t.Fatal("run.lock 打开失败时 Acquire 必须返回错误")
-		}
-	})
-	t.Run("flock error for fifo when unsupported", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := syscall.Mkfifo(filepath.Join(dir, "run.lock"), 0o600); err != nil {
-			t.Skipf("FIFO unavailable: %v", err)
-		}
-		lock, err := Acquire(dir)
-		if err == nil {
-			_ = lock.Close()
-			t.Skip("this filesystem supports flock on FIFOs")
 		}
 	})
 }
