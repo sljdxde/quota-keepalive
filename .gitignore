@@ -14,7 +14,9 @@
 *.exe
 *.test
 *.out
+# 通用依赖目录；前端离线 3D 运行时是产品资源，必须入库。
 vendor/
+!internal/gui/frontend/assets/vendor/
 
 # 构建产物
 build/
