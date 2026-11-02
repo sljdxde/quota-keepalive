@@ -199,8 +199,21 @@ cleanup_mount() {
 trap cleanup_mount EXIT
 DISK_NAME="$(basename "$MOUNT_DIR")"
 
-# 用 AppleScript 设置 Finder 视图与图标位置（失败不阻断，仅影响美观）
-osascript <<APPLESCRIPT 2>/dev/null || true
+# 用 AppleScript 设置 Finder 视图与图标位置（失败不阻断，仅影响美观）。
+# 注意：首次授权 Finder 自动化时 osascript 会弹权限框并静默挂起，
+# 无人值守构建不能被它卡住，因此这里强制最多等 8 秒。
+run_with_timeout() {
+  local seconds="$1"; shift
+  "$@" &
+  local cmd_pid=$!
+  ( sleep "$seconds"; kill -0 "$cmd_pid" 2>/dev/null && kill "$cmd_pid" 2>/dev/null ) &
+  local watchdog_pid=$!
+  wait "$cmd_pid" 2>/dev/null || true
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+}
+
+run_with_timeout 8 osascript 2>/dev/null <<APPLESCRIPT || true
 tell application "Finder"
   set diskName to "$DISK_NAME"
   set diskContainer to disk diskName
