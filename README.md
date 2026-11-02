@@ -24,14 +24,20 @@ quota-keepalive 不接管任何供应商的登录，也不会把页面伪装成�
 > 页面已隐藏顶部“发送保活”、账号级保活开关和保活模型配置；定时任务只执行签到。
 > 已有保活记录仍作为历史日志保留。保活后端代码暂不删除，后续确认稳定后再开放入口。
 
-> **非官方插件声明**
->
+## 非官方插件声明
+
 > 本项目不是 Magpie 官方插件。签到优先调用供应商插件公开的签到接口；真实对话
 > 保活不是供应商授权或保证支持的功能。保活请求通过本机已登录的供应商签名适配器
 > 直接发往供应商，不经过第三方服务器，也不会导出令牌，因此降低了凭据泄露风险，
 > 但不等于厂商风控风险为零。自动化合成消息仍可能被供应商识别为异常流量，并触发
 > 限流、额度冻结、账号限制或封禁。默认关闭保活，仅在理解风险后按需启用，并由
 > 使用者自行承担相关后果。
+
+> **安装入口**
+>
+> 本项目不上架 Magpie 官方插件市场。其他用户可直接执行
+> `magpie plugin add quota-keepalive`，完整步骤见[安装（非官方市场）](#安装非官方市场)。
+> 安装前请先阅读[安装风险](#安装风险)。
 
 ## 功能
 
@@ -69,61 +75,144 @@ quota-keepalive 不接管任何供应商的登录，也不会把页面伪装成�
   “执行保活”按钮只对当前账号立即执行一次。手动保活必须二次确认，仍会遵守供应商
   整体启停，但可以单独执行一个已关闭自动任务的账号。
 
-## 安装
+## 安装（非官方市场）
 
-npm 安装（推荐，支持 Magpie 自动检查更新）：
+本项目不会上架 Magpie 官方插件市场。插件已经发布到 npm，其他用户不需要 clone
+仓库，也不需要等待官方市场上架，直接用 Magpie CLI 安装即可。
+
+- npm 包名：`quota-keepalive`
+- 仓库地址：<https://github.com/sljdxde/quota-keepalive>
+
+### 安装风险
+
+本项目不经过 Magpie 官方市场审核，安装前请理解以下边界：
+
+- **供应链风险**：安装即表示信任本项目仓库和 npm 发布者。若 npm 账号或 GitHub
+  仓库被入侵，后续版本可能包含恶意代码。请只使用本 README 给出的 npm 包名或
+  GitHub 地址，不要安装来源不明的镜像包。GitHub 方式跟踪默认分支，可能拿到尚未
+  发布的代码；日常使用优先 npm。
+- **本地权限风险**：`magpie.permissions` 只限制插件页面能读取的数据，不是插件后端
+  的沙箱。插件后端以当前用户权限运行，会读取 `~/.config/magpie/plugin-auth.json`
+  等文件来复用 Magpie 已有登录并代发请求。当前实现不会主动导出令牌，日志也会脱敏，
+  但这是代码行为，不是官方安全背书；介意时请先审阅源码。
+- **更新风险**：非官方 npm 插件的新版本默认只提示更新，不会像
+  `@magpie-community/*` 那样自动安装。但执行 `magpie plugin update` 或页面的
+  `Update all` 会升级全部插件，并把固定版本解除固定。需要控制升级时，固定具体版本
+  安装 `quota-keepalive@x.y.z`，暂缓全量更新，并在升级前查看 Release 和代码差异。
+- **供应商风控风险**：自动签到和保活都会产生真实请求，可能消耗额度、触发限流，或
+  被供应商判定为异常流量，导致额度冻结、账号限制甚至封禁。保活默认关闭；即使只启用
+  签到，也应按供应商条款自行评估。
+- **兼容与支持风险**：本项目没有 Magpie 官方兼容性认证，也没有官方支持。Magpie 或
+  供应商插件修改公开接口后，本插件可能失效；请通过日志定位问题，并在
+  [GitHub Issues](https://github.com/sljdxde/quota-keepalive/issues) 反馈。无法接受
+  这些风险时，可按安装方式使用下方的卸载命令移除。
+
+### 方式一：npm（推荐）
+
+前提：已安装 Magpie，并且终端里能执行 `magpie` 命令。
 
 ```sh
+magpie --version
 magpie plugin add quota-keepalive
 ```
 
-安装后的插件规格会显示为 `quota-keepalive@latest`。Magpie 会在启动后和之后每小时
-检查一次更新，并在插件页面提示新版本。更新方式：
+安装完成后检查：
 
 ```sh
-# 更新全部 npm/git 插件
-magpie plugin update
-
-# 只更新这个插件
-magpie plugin add quota-keepalive
+magpie plugin list
 ```
 
-页面中的 `Update all` 与 `magpie plugin update` 等价。重新添加同一个 npm 包会替换
-旧版本，并保留插件 options、启用/停用状态和供应商偏好。已固定版本
-`quota-keepalive@0.1.x` 也会在更新时升级到最新版并解除固定。
+列表中应出现 `quota-keepalive@latest`。然后打开 Magpie 左侧 `Plugins` 分组中的
+“额度签到”。
 
-从 GitHub 安装（不经过 npm）：
+### 方式二：GitHub（不经 npm）
+
+npm 不可用，或希望直接跟踪仓库代码时：
 
 ```sh
 magpie plugin add github:sljdxde/quota-keepalive
 ```
 
-从本地目录安装（仅用于开发调试）：
+这种方式同样可以用 `magpie plugin update` 更新。如果当前网络访问 npm 不稳定，
+可以先查看 `magpie plugin registry` 的配置，或改用这种方式。
+
+### 方式三：本地目录（仅开发调试）
+
+在仓库根目录执行：
 
 ```sh
 magpie plugin add "$(pwd)"
 ```
 
 目录安装会直接读取当前源码，适合修改后立即调试，但不会进入 npm 的版本检查，也不会
-被 `magpie plugin update` 更新。开发完成后应切换到 npm 安装。切换前先保存 npm
-条目中的 options，再停用目录条目：
+被 `magpie plugin update` 更新。开发完成后应切换到 npm 安装。先查看并复制目录条目
+的 options，停用目录条目，再添加 npm 条目并恢复 options：
 
 ```sh
+# 仍在仓库根目录
+magpie plugin options "$(pwd)"   # 复制输出；若显示 No options set 则跳过恢复
+magpie plugin off "$(pwd)"
 magpie plugin add quota-keepalive
-magpie plugin options quota-keepalive '<原来的 options JSON>'
-magpie plugin off '<目录插件的 spec>'
-magpie plugin rm '<目录插件的 spec>'
+magpie plugin options quota-keepalive '<复制的 options JSON>'
+magpie plugin rm "$(pwd)"
 ```
+
+如果查看 options 时显示 `No options set.`，不要执行恢复 options 的那一行。
+
+### 安装后检查
+
+1. `magpie plugin list` 能看到本插件的 spec：npm 安装为 `quota-keepalive@latest`，
+   GitHub 安装为 `github:sljdxde/quota-keepalive`，目录安装为绝对路径。
+2. Magpie 的 `Plugins` 分组中出现“额度签到”。
+3. 至少安装并登录一个供应商插件（WorkBuddy、Qoder、Trae 等）；本插件不接管登录，只读取 Magpie 中已有的登录状态。
+4. 打开页面后点击“一键检测”，确认供应商和账号被识别。
+
+### 更新
+
+```sh
+# 更新全部 npm/git 插件
+magpie plugin update
+
+# npm 安装：只更新这个插件
+magpie plugin add quota-keepalive
+```
+
+GitHub 安装没有单独的更新命令，使用上面的 `magpie plugin update`；执行
+`magpie plugin add quota-keepalive` 会切到 npm 版本，而不是更新当前 Git 检出。
+重新添加同一个 npm 包会替换旧版本，并保留插件 options、启用/停用状态和供应商
+偏好。已固定版本 `quota-keepalive@0.1.x` 也会在更新时升级到最新版并解除固定。
+页面中的 `Update all` 与 `magpie plugin update` 等价。
+
+### 卸载
+
+```sh
+# npm 安装
+magpie plugin rm quota-keepalive
+
+# GitHub 安装
+magpie plugin rm github:sljdxde/quota-keepalive
+
+# 本地目录安装（在原来的仓库根目录执行）
+magpie plugin rm "$(pwd)"
+```
+
+### 常见问题
+
+- 官方市场里搜不到：这是正常的，本项目不上架官方市场，请使用上面的 npm 或 GitHub 命令。
+- 非官方插件列表里搜不到：在 GitHub 非官方插件搜索框中输入 `quota` 或
+  `quota-keepalive`，并确认拼写正确。该列表由 GitHub 异步加载，若暂时为空，可点击
+  “全部显示”或重新打开 `Plugins` 页面；仍找不到时直接执行
+  `magpie plugin add quota-keepalive`。
+- `magpie: command not found`：确认 Magpie 已安装且 `magpie` 在 `PATH` 中；也可以使用 Magpie 安装目录中的 CLI 可执行文件。
+- 安装后页面没有出现：再执行一次 `magpie plugin list`，确认插件已加载；然后重新打开 `Plugins` 页面。
+- 能打开页面但检测不到账号：先安装并登录对应的供应商插件。本插件只读取 Magpie 已有登录，不提供登录入口。
 
 插件不需要接管 provider。供应商登录仍由 Magpie 已安装的对应社区插件提供；本插件
 直接从 Magpie 的插件目录加载这些签名适配器，因此 Magpie 或供应商插件更新后，
 只要其公开接口没有变化，本插件仍可继续使用。若供应商包改名为不兼容的接口，页面
 会明确显示失败原因，不会静默跳过。
 
-安装后在 Magpie 左侧 `Plugins` 分组打开“额度签到”。如果页面文件刚更新，
-重新打开一次插件页即可刷新清单，不需要重启 Magpie。
-
-### 发布新版本
+## 发布新版本
 
 仓库包含 `.github/workflows/publish.yml`，使用 npm Trusted Publishing，不需要把
 npm token 写进仓库或 GitHub Secrets：

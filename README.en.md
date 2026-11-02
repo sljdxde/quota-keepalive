@@ -43,6 +43,13 @@ hook. This plugin only coordinates those capabilities and presents the results.
 > rate limits, credit freezes, account restrictions, or bans. Keepalive is disabled by
 > default. Enable it only if you understand the risk and accept the consequences.
 
+> **Installation**
+>
+> This project is not listed in Magpie's official plugin marketplace. Install it with
+> `magpie plugin add quota-keepalive`; see
+> [Install outside the official marketplace](#install-outside-the-official-marketplace).
+> Read [the installation risks](#installation-risks) before proceeding.
+
 ## Features
 
 - Detect every signed-in Magpie provider, account, model, and quota window.
@@ -75,50 +82,154 @@ hook. This plugin only coordinates those capabilities and presents the results.
   logs. Tokens, full account identifiers, enterprise identifiers, and model replies
   are never stored.
 
-## Install
+## Install (outside the official marketplace)
 
-Install from npm. This is the recommended path and supports Magpie update checks:
+This project is not listed in Magpie's official plugin marketplace. The package is
+published to npm, so other users do not need to clone the repository or wait for a
+marketplace listing.
+
+- npm package: `quota-keepalive`
+- Repository: <https://github.com/sljdxde/quota-keepalive>
+
+### Installation risks
+
+This project is not reviewed through Magpie's official marketplace. Before installing:
+
+- **Supply chain**: Installing trusts this repository and npm publisher. If the npm
+  account or GitHub repository is compromised, a later release could contain
+  malicious code. Install only from the npm package name or GitHub repository above,
+  not an unknown mirror. GitHub installs track the default branch and may load
+  unreleased code; prefer npm for normal use.
+- **Local permissions**: `magpie.permissions` limits what the plugin page can read; it
+  is not a sandbox for the plugin backend. The backend runs with your user privileges
+  and reads files such as `~/.config/magpie/plugin-auth.json` to reuse existing Magpie
+  sessions and send requests. The current code does not export tokens and redacts
+  logs, but that is implementation behavior, not an official security endorsement.
+  Review the source if you need stronger assurance.
+- **Updates**: New versions of unofficial npm plugins are reported as pending updates,
+  not installed automatically like `@magpie-community/*` packages. However,
+  `magpie plugin update` or **Update all** upgrades every plugin and unpins an exact
+  version. For controlled upgrades, install a specific `quota-keepalive@x.y.z`
+  version, defer bulk updates, and review Release notes and code changes first.
+- **Vendor risk**: Automated check-ins and keepalive send real requests and may consume
+  credits, trigger rate limits, or be classified as abnormal traffic, leading to
+  credit freezes, account restrictions, or bans. Keepalive is disabled by default;
+  evaluate provider terms before enabling even check-in.
+- **Compatibility and support**: This project has no Magpie compatibility certification
+  or official support. Changes to Magpie or provider plugin interfaces may break it.
+  Use logs to diagnose failures and report them in
+  [GitHub Issues](https://github.com/sljdxde/quota-keepalive/issues). Use the
+  uninstall command for the installation method below if you do not accept these
+  risks.
+
+### Option 1: npm (recommended)
+
+Prerequisite: Magpie is installed and `magpie` is available in your terminal.
 
 ```sh
+magpie --version
 magpie plugin add quota-keepalive
 ```
 
-Magpie checks installed npm/git plugins shortly after startup and then every hour.
-When a newer version is available, Plugins shows an update badge and an update action.
-
-Update every npm/git plugin:
+Verify the installation:
 
 ```sh
-magpie plugin update
+magpie plugin list
 ```
 
-Update only this plugin:
+The list should include `quota-keepalive@latest`. Then open **Plugins → Quota
+Keepalive** in Magpie.
 
-```sh
-magpie plugin add quota-keepalive
-```
+### Option 2: GitHub (without npm)
 
-Re-adding the same npm package replaces the old version while preserving plugin
-options, provider preferences, and enabled/disabled state. Updating also unpins an
-older `quota-keepalive@x.y.z` spec.
-
-Install from GitHub without npm:
+Use this when npm is unavailable or you want to track the repository directly:
 
 ```sh
 magpie plugin add github:sljdxde/quota-keepalive
 ```
 
-Install from a local folder only for development:
+This installation can also be updated with `magpie plugin update`. If npm is
+unreliable on your network, check `magpie plugin registry` or use this option.
+
+### Option 3: Local folder (development only)
+
+Run this from the repository root:
 
 ```sh
 magpie plugin add "$(pwd)"
 ```
 
-A folder plugin loads the working tree directly and is not included in Magpie's
-version checks or `magpie plugin update`. Switch back to npm before shipping.
+A folder plugin loads the working tree directly. It is not included in Magpie's
+version checks or `magpie plugin update`. Before switching back to npm, copy the
+folder entry's options, turn the folder entry off, add the npm entry, restore the
+options, and then remove the folder entry:
 
-After installation, open **Plugins → Quota Keepalive** in Magpie. Reopen the page
-after a UI-only update; restarting all of Magpie is not required.
+```sh
+# still in the repository root
+magpie plugin options "$(pwd)"   # copy the output; skip restore if it says No options set
+magpie plugin off "$(pwd)"
+magpie plugin add quota-keepalive
+magpie plugin options quota-keepalive '<copied options JSON>'
+magpie plugin rm "$(pwd)"
+```
+
+If viewing the options prints `No options set.`, skip the restore line.
+
+### Verify after installation
+
+1. `magpie plugin list` shows this plugin's spec: `quota-keepalive@latest` for npm,
+   `github:sljdxde/quota-keepalive` for GitHub, or an absolute folder path.
+2. **Plugins** includes **Quota Keepalive**.
+3. At least one provider plugin is installed and signed in (WorkBuddy, Qoder, Trae,
+   and others). This plugin does not own sign-in; it only reads Magpie's existing
+   sessions.
+4. Open the page and click **Detect** to confirm providers and accounts are found.
+
+### Update
+
+```sh
+# Update every npm/git plugin
+magpie plugin update
+
+# npm install: update only this plugin
+magpie plugin add quota-keepalive
+```
+
+There is no separate update command for a GitHub install; use
+`magpie plugin update` above. Running `magpie plugin add quota-keepalive` switches to
+the npm version rather than updating the current Git checkout.
+Re-adding the same npm package replaces the old version while preserving plugin
+options, provider preferences, and enabled/disabled state. Updating also unpins an
+older `quota-keepalive@x.y.z` spec. **Update all** in the page is equivalent to
+`magpie plugin update`.
+
+### Uninstall
+
+```sh
+# npm install
+magpie plugin rm quota-keepalive
+
+# GitHub install
+magpie plugin rm github:sljdxde/quota-keepalive
+
+# local folder install (run from the original repository root)
+magpie plugin rm "$(pwd)"
+```
+
+### Troubleshooting
+
+- Not found in the official marketplace: expected. This project is not listed there;
+  use the npm or GitHub command above.
+- Not found in the unofficial GitHub list: search for `quota` or `quota-keepalive`
+  and check the spelling. That list loads asynchronously from GitHub; if it is
+  temporarily empty, choose **Show all** or reopen the **Plugins** page. If it is
+  still missing, install it directly with `magpie plugin add quota-keepalive`.
+- `magpie: command not found`: confirm Magpie is installed and `magpie` is on `PATH`;
+  alternatively use the CLI executable inside the Magpie installation directory.
+- The page is missing after installation: run `magpie plugin list` again, confirm the
+  plugin is loaded, then reopen the **Plugins** page.
+- The page opens but no accounts are detected: install and sign in to the relevant
+  provider plugin first. This plugin only reads existing Magpie sessions.
 
 ## Quick start
 
