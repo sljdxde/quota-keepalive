@@ -7,7 +7,8 @@ name: windows
 
 on:
   push:
-    branches: [main]
+    # 分支上也要跑：Go 版的默认分支还没切换，只在 main 触发等于永不运行。
+    branches: ['**']
     paths:
       - 'cmd/**'
       - 'internal/**'
