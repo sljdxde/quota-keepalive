@@ -56,6 +56,11 @@ func TestCheckinManagementUsesGenericProviderLifecycle(t *testing.T) {
 		`head.setAttribute("aria-label"`,
 		`cursor: pointer; user-select: none`,
 		`const collapse = document.createElement("span")`,
+		// 模型区默认折叠，点标题展开；全选/反选不触发折叠。
+		`const expandedModelPanels = new Set()`,
+		`panel.classList.toggle("collapsed", collapsed)`,
+		`if (event.target.closest(".provider-model-batch")) return`,
+		`headSummary.textContent = badCount`,
 		// 模型测试结论标在 chip 的点上，而不是铺一屏结果列表。
 		`dot.className = "model-test-dot"`,
 		`chip.insertBefore(dot, label)`,

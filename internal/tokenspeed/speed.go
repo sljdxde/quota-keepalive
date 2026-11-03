@@ -443,6 +443,18 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 			lastMS: state.lastLineMS,
 		})
 	}
+	// 同一项目下可能同时有多个会话，名字会完全一样（都叫「临时文件」），
+	// 用短 ID 后缀区分，否则用户无法知道哪一行是哪一个。
+	labelCount := make(map[string]int, len(sessionRows))
+	for _, row := range sessionRows {
+		labelCount[row.view.Label]++
+	}
+	for i := range sessionRows {
+		view := &sessionRows[i].view
+		if labelCount[view.Label] > 1 {
+			view.Label = view.Label + " #" + view.ID[:4]
+		}
+	}
 	sort.SliceStable(sessionRows, func(i, j int) bool {
 		return lessSessionRow(sessionRows[i], sessionRows[j])
 	})

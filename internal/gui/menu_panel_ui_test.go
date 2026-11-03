@@ -488,11 +488,11 @@ func TestCheckinPanelNavigationCollapseAndHiddenScrollbars(t *testing.T) {
 		`data-attention="true"`,
 		`data-done="true"`,
 		`card.scrollIntoView(`,
-		// 供应商组默认展开（进来就看得到全部供应商），只记录被收起的。
-		`collapsedProviderGroups.delete(target)`,
-		`collapsedProviderGroups.clear()`,
-		`const collapsedProviderGroups = new Set()`,
-		`const collapsed = collapsedProviderGroups.has(groupKey)`,
+		// 供应商组默认折叠（先看供应商列表，点开谁再看谁的账号）。
+		`expandedProviderGroups.add(target)`,
+		`expandedProviderGroups.clear()`,
+		`const expandedProviderGroups = new Set()`,
+		`const collapsed = !expandedProviderGroups.has(groupKey)`,
 		`"card account-group" + (collapsed ? " collapsed" : "")`,
 		// 账号层默认折叠，二者状态互不干扰。
 		`const expandedAccounts = new Set()`,

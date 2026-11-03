@@ -3,6 +3,7 @@ package tokenspeed
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,5 +112,43 @@ func TestDecodeWorkspaceDirEdgeCases(t *testing.T) {
 		if got := decodeWorkspaceDir(tc.in); got != tc.want {
 			t.Fatalf("decodeWorkspaceDir(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestDuplicateSessionLabelsGetShortIDSuffix 验证同一项目下的多个会话不会
+// 显示成三行一模一样的名字：重名时追加短 ID 后缀，便于区分。
+func TestDuplicateSessionLabelsGetShortIDSuffix(t *testing.T) {
+	root := t.TempDir()
+	now := dshFixedNow()
+	session := "dup-0000-4000-8000-000000000011"
+	path := dshSessionPath(root, session)
+	dshWriteFile(t, path, dshFrame(t,
+		`{"type":"session","version":4,"id":"dup","cwd":"/Users/me/临时文件"}`,
+		dshAssistantEvent("msg-a", now, 10, 5, 15, 0),
+	))
+	// 第二个会话文件，同一 cwd。
+	second := "dup-0000-4000-8000-000000000012"
+	secondPath := dshSessionPath(root, second)
+	dshWriteFile(t, secondPath, dshFrame(t,
+		`{"type":"session","version":4,"id":"dup2","cwd":"/Users/me/临时文件"}`,
+		dshAssistantEvent("msg-b", now, 20, 10, 30, 0),
+	))
+
+	service := dshNewService(root, now)
+	service.Poll()
+	sessions := service.Snapshot().Sessions
+	if len(sessions) != 2 {
+		t.Fatalf("会话数 = %d: %+v", len(sessions), sessions)
+	}
+	for _, s := range sessions {
+		if !strings.HasPrefix(s.Label, "临时文件 #") {
+			t.Fatalf("重名会话应带短 ID 后缀，实际 %q", s.Label)
+		}
+		if s.Project != "临时文件" {
+			t.Fatalf("project 字段应保持纯项目名，实际 %q", s.Project)
+		}
+	}
+	if sessions[0].Label == sessions[1].Label {
+		t.Fatalf("两行名字不应相同: %q", sessions[0].Label)
 	}
 }

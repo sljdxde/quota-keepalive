@@ -680,6 +680,36 @@
   .settings-text-input::placeholder { color: var(--muted); }
   .settings-text-input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
   .settings-text-input:disabled { opacity: .55; }
+  .provider-model-panel .provider-model-head {
+    cursor: pointer;
+    user-select: none;
+  }
+  .provider-model-panel.collapsed .provider-model-body { display: none; }
+  .provider-model-toggle {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 18px; height: 18px;
+    color: var(--muted);
+    transition: transform .18s ease, color .18s ease;
+  }
+  .provider-model-toggle svg { width: 14px; height: 14px; }
+  .provider-model-panel.collapsed .provider-model-toggle { transform: rotate(-90deg); }
+  .provider-model-panel .provider-model-head:hover .provider-model-toggle { color: var(--fg-2); }
+  .provider-model-summary {
+    flex: none;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 9.5px;
+    font-weight: 620;
+    white-space: nowrap;
+  }
+  .provider-model-summary.good { color: var(--green); background: var(--green-soft); }
+  .provider-model-summary.bad { color: var(--red); background: var(--red-soft); }
+  @media (prefers-reduced-motion: reduce) {
+    .provider-model-toggle { transition: none; }
+  }
   .provider-model-actions { flex: none; display: flex; gap: 6px; margin-left: auto; }
   .provider-model-batch {
     height: 22px; padding: 0 8px; border: 0; border-radius: 6px;
@@ -2980,9 +3010,11 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   // 定义之前声明：模块作用域的 const 存在暂时性死区，声明晚于调用点会抛
   // ReferenceError 并让整页空白。
   //
-  // 供应商组默认展开（进来就看得到全部供应商），账号卡片默认折叠。
-  const collapsedProviderGroups = new Set();
+  // 供应商组默认折叠（先看供应商列表，点开谁就看谁的账号），账号卡片默认折叠。
+  const expandedProviderGroups = new Set();
   const expandedAccounts = new Set();
+  // 模型测试区同样默认折叠，避免 16 个 chip 把卡片平铺得很长。
+  const expandedModelPanels = new Set();
 
   function customBackgroundData() {
     try {
@@ -3422,8 +3454,8 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       return option.value === target;
     });
     picker.value = hasTarget ? target : "";
-    if (target && hasTarget) collapsedProviderGroups.delete(target);
-    else collapsedProviderGroups.clear();
+    if (target && hasTarget) expandedProviderGroups.add(target);
+    else expandedProviderGroups.clear();
     await renderAccounts();
     if (request !== checkinFocusGeneration) return;
 
@@ -5101,7 +5133,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
     if (!button) return;
     const allCollapsed = visibleAccountGroupKeys.length > 0 &&
       visibleAccountGroupKeys.every(function (key) {
-        return collapsedProviderGroups.has(key);
+        return !expandedProviderGroups.has(key);
       });
     button.textContent = allCollapsed ? "全部展开" : "全部收起";
     button.setAttribute("aria-pressed", allCollapsed ? "true" : "false");
@@ -5109,8 +5141,8 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   }
 
   function setAccountGroupCollapsed(groupKey, collapsed) {
-    if (collapsed) collapsedProviderGroups.add(groupKey);
-    else collapsedProviderGroups.delete(groupKey);
+    if (collapsed) expandedProviderGroups.delete(groupKey);
+    else expandedProviderGroups.add(groupKey);
     document.querySelectorAll("#accounts-body .account-group").forEach(function (group) {
       if (group.dataset.provider !== groupKey) return;
       group.classList.toggle("collapsed", collapsed);
@@ -5211,7 +5243,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       const accounts = provider.accounts || [];
       const groupKey = provider.id;
       const group = document.createElement("div");
-      const collapsed = collapsedProviderGroups.has(groupKey);
+      const collapsed = !expandedProviderGroups.has(groupKey);
       group.className = "card account-group" + (collapsed ? " collapsed" : "");
       group.dataset.provider = groupKey;
       const head = document.createElement("button");
@@ -5241,8 +5273,10 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
         '<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" ' +
         'stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const toggleGroup = function () {
-        const next = collapsedProviderGroups.has(groupKey);
-        setAccountGroupCollapsed(groupKey, next);
+        // 展开集合里没有就是折叠；点击后状态取反。
+        if (expandedProviderGroups.has(groupKey)) expandedProviderGroups.delete(groupKey);
+        else expandedProviderGroups.add(groupKey);
+        setAccountGroupCollapsed(groupKey, !expandedProviderGroups.has(groupKey));
         syncAccountCollapseButton();
       };
       head.onclick = toggleGroup;
@@ -5310,10 +5344,54 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
     invertAll.textContent = "反选";
     headActions.appendChild(selectAll);
     headActions.appendChild(invertAll);
+    const headChevron = document.createElement("span");
+    headChevron.className = "provider-model-toggle";
+    headChevron.setAttribute("aria-hidden", "true");
+    headChevron.innerHTML = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" ' +
+      'stroke-linecap="round" stroke-linejoin="round"/></svg>';
     head.appendChild(title);
     head.appendChild(count);
+    const headSummary = document.createElement("small");
+    headSummary.className = "provider-model-summary";
+    headSummary.hidden = true;
     head.appendChild(headActions);
+    head.appendChild(headSummary);
+    head.appendChild(headChevron);
     panel.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "provider-model-body";
+    panel.appendChild(body);
+
+    // 模型区默认折叠：16 个 chip 平铺会把卡片拉得很长。
+    const panelKey = provider.id + ":models";
+    const syncPanelCollapsed = function () {
+      const collapsed = !expandedModelPanels.has(panelKey);
+      panel.classList.toggle("collapsed", collapsed);
+      head.setAttribute("role", "button");
+      head.setAttribute("tabindex", "0");
+      head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      head.setAttribute(
+        "aria-label",
+        (collapsed ? "展开" : "收起") + (provider.name || provider.id) + " 的模型列表");
+    };
+    const togglePanel = function () {
+      if (expandedModelPanels.has(panelKey)) expandedModelPanels.delete(panelKey);
+      else expandedModelPanels.add(panelKey);
+      syncPanelCollapsed();
+    };
+    head.onclick = function (event) {
+      // 全选/反选有自己的行为，点它们不应该顺带折叠整个模型区。
+      if (event.target.closest(".provider-model-batch")) return;
+      togglePanel();
+    };
+    head.onkeydown = function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target !== head) return;
+      event.preventDefault();
+      togglePanel();
+    };
 
     if (!models.length) {
       const empty = document.createElement("div");
@@ -5448,15 +5526,15 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       list.appendChild(chip);
       chipByModelId.set(model.id || "", { chip: chip, dot: dot, model: model });
     });
-    panel.appendChild(list);
+    body.appendChild(list);
     footer.appendChild(copy);
     footer.appendChild(test);
-    panel.appendChild(footer);
+    body.appendChild(footer);
 
     const result = document.createElement("div");
     result.className = "model-test-result";
     result.hidden = true;
-    panel.appendChild(result);
+    body.appendChild(result);
 
     function applyModelStatus(modelId, status, detail) {
       const entry = chipByModelId.get(modelId);
@@ -5480,6 +5558,12 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       result.textContent = badCount
         ? okCount + " 个可用，" + badCount + " 个不可用（悬停模型名查看原因）"
         : "全部 " + rows.length + " 个模型可用";
+      // 折叠状态下也要能一眼看到结论，所以同步一份到标题行。
+      headSummary.hidden = false;
+      headSummary.className = "provider-model-summary " + (badCount ? "bad" : "good");
+      headSummary.textContent = badCount
+        ? okCount + " 可用 · " + badCount + " 不可用"
+        : rows.length + " 个全部可用";
     }
 
     test.onclick = async function () {
@@ -5521,6 +5605,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       syncSelection();
     };
     syncSelection();
+    syncPanelCollapsed();
     return panel;
   }
 
@@ -6221,7 +6306,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   document.getElementById("accounts-collapse-all").onclick = function () {
     if (!visibleAccountGroupKeys.length) return;
     const allCollapsed = visibleAccountGroupKeys.every(function (key) {
-      return collapsedProviderGroups.has(key);
+      return !expandedProviderGroups.has(key);
     });
     visibleAccountGroupKeys.forEach(function (key) {
       setAccountGroupCollapsed(key, !allCollapsed);
