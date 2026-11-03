@@ -108,7 +108,7 @@ jobs:
         shell: pwsh
         run: |
           # bun.exe 不在 CI 包内，脚本第 5 步会跳过；其余检查照常执行。
-          powershell -ExecutionPolicy Bypass -File scripts/windows-smoke.ps1 -PackageDir dist/smoke/QKA-ci-windows-amd64 -SkipTaskRun:$false
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-smoke.ps1 -PackageDir dist/smoke/QKA-ci-windows-amd64
         continue-on-error: false
 
       - name: Upload binaries

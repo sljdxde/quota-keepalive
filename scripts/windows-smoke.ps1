@@ -1,4 +1,4 @@
-# QKA Windows 冒烟测试
+﻿# QKA Windows 冒烟测试
 #
 # 用法（在 Windows 上，解压 QKA-<version>-windows-<arch>.zip 后）：
 #   powershell -ExecutionPolicy Bypass -File windows-smoke.ps1 -PackageDir .\QKA-1.0.0-windows-amd64
