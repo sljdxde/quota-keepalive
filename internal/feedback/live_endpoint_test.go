@@ -3,6 +3,7 @@ package feedback
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -78,5 +79,20 @@ func TestLiveFeedbackEndpointIsDeployed(t *testing.T) {
 		t.Fatalf("反馈端点 %s 不可达: %v", endpoint, err)
 	}
 	defer resp.Body.Close()
-	t.Logf("反馈端点可达: HTTP %d", resp.StatusCode)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	t.Logf("反馈端点响应: HTTP %d, body=%q", resp.StatusCode, strings.TrimSpace(string(body)))
+
+	// 「拿到 HTTP 响应」不等于「Worker 存在」：域名被劫持/污染的中间设备同样会
+	// 返回 404，而 Cloudflare 对未部署的 Worker 会回 `error code: 1042`。
+	// 这两种情况都必须判失败，否则测试会给假绿灯。
+	if bodyIsWorkerMissing(string(body)) {
+		t.Fatalf("反馈端点 %s 上没有可用的 Worker（Cloudflare 返回 %q）：服务尚未部署",
+			endpoint, strings.TrimSpace(string(body)))
+	}
+	if resp.Header.Get("Server") == "" {
+		t.Fatalf("反馈端点 %s 的响应没有 Server 头，可能来自透明代理或劫持", endpoint)
+	}
+	if resp.StatusCode >= 500 {
+		t.Fatalf("反馈端点 %s 返回 %d，服务端异常", endpoint, resp.StatusCode)
+	}
 }

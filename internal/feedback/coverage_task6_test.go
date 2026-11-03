@@ -110,3 +110,15 @@ func TestDescribeNetworkErrorNotFound(t *testing.T) {
 		t.Fatalf("普通解析失败文案不对: %q", msg)
 	}
 }
+
+// TestLiveProbeDetectsUndeployedWorker 用 httptest 固定「假绿灯」的判定逻辑：
+// 未部署的 Worker 回 error code: 1042、被劫持的中间设备没有 Server 头，
+// 两者都必须判失败，不能因为拿到 HTTP 响应就通过。
+func TestLiveProbeBodyIsWorkerMissing(t *testing.T) {
+	if !bodyIsWorkerMissing("error code: 1042") {
+		t.Fatal("1042 必须判定为 Worker 不存在")
+	}
+	if bodyIsWorkerMissing(`{"error":"站点密钥错误"}`) {
+		t.Fatal("Worker 自身返回的业务错误不应判定为不存在")
+	}
+}

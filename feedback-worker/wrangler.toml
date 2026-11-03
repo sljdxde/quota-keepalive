@@ -6,5 +6,10 @@ compatibility_date = "2026-10-01"
 GITHUB_REPOSITORY = "sljdxde/quota-keepalive"
 ASSET_BRANCH = "feedback-assets"
 
+# 客户端内置地址的唯一真源。internal/feedback 的测试会读这一行并与
+# DefaultEndpoint 比对，两边不一致就直接失败——避免出现「客户端指向一个
+# 从未部署的主机名」这种只有用户点提交才会发现的问题。
+PUBLIC_URL = "https://qka-feedback.neighborhood-share-sljdxde.workers.dev/api/feedback"
+
 # Set these with `npx wrangler secret put GITHUB_TOKEN` and
 # `npx wrangler secret put SITE_KEY`. Never put tokens in this file.

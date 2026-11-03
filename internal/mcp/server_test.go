@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
@@ -139,6 +140,18 @@ func TestServerBindsLoopback(t *testing.T) {
 	addr := httpSrv.Addr
 	if !bytes.HasPrefix([]byte(addr), []byte("127.0.0.1:")) {
 		t.Errorf("服务应仅绑定 loopback，实际 %s", addr)
+	}
+
+	// 真发一个请求：既证明服务确实在监听（而不是只拿到一个 http.Server 对象），
+	// 也让 Serve 的 goroutine 确定被执行——只创建不访问时该行覆盖率靠运气。
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + addr + "/mcp")
+	if err != nil {
+		t.Fatalf("连不上刚启动的服务: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET 应返回 %d，实际 %d", http.StatusMethodNotAllowed, resp.StatusCode)
 	}
 }
 

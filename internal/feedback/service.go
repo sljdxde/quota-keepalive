@@ -23,7 +23,7 @@ import (
 const (
 	// DefaultEndpoint is the Cloudflare Worker that owns the GitHub write token.
 	// It can be overridden for local acceptance tests with QKA_FEEDBACK_URL.
-	DefaultEndpoint = "https://qka-feedback.sljdxde.workers.dev/api/feedback"
+	DefaultEndpoint = "https://qka-feedback.neighborhood-share-sljdxde.workers.dev/api/feedback"
 	// DefaultSiteKey is a public anti-crawler key, not an authorization secret.
 	DefaultSiteKey = "qka-feedback-2026-v1"
 
@@ -271,6 +271,17 @@ func (s *Service) logs(ctx context.Context) ([]LogEntry, error) {
 		entries = entries[len(entries)-maxLogLines:]
 	}
 	return entries, nil
+}
+
+// bodyIsWorkerMissing 判断响应体是否是 Cloudflare 的「该主机名没有 Worker」
+// 错误页。判定独立出来是为了可测：只看 HTTP 状态码会把未部署当成可达。
+func bodyIsWorkerMissing(body string) bool {
+	for _, code := range []string{"error code: 1042", "error code: 1014", "error code: 1033"} {
+		if strings.Contains(body, code) {
+			return true
+		}
+	}
+	return false
 }
 
 // effectiveEndpoint 优先用调用方（设置页）给出的自定义地址，其次用
