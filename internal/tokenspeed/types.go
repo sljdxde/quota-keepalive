@@ -167,8 +167,12 @@ type SourceSnapshot struct {
 // SessionSnapshot is one local agent transcript's safe, credential-free view.
 // The opaque ID is derived from the local file identity and never contains a path.
 type SessionSnapshot struct {
-	ID                    string  `json:"id"`
-	Label                 string  `json:"label"`
+	ID string `json:"id"`
+	// Label 是给人看的会话名（项目/工作区）。同一次会话可能横跨多个项目，
+	// 因此 Label 只从路径或会话元数据推导，绝不使用提示词内容。
+	Label string `json:"label"`
+	// Project 是推导出的项目名；为空时界面回退到模型名或短 ID。
+	Project               string  `json:"project,omitempty"`
 	Source                string  `json:"source"`
 	SourceLabel           string  `json:"source_label"`
 	Model                 string  `json:"model,omitempty"`
@@ -382,10 +386,6 @@ func TransportTitle(value float64, active bool) string {
 func sessionID(agentID string) string {
 	sum := sha256.Sum256([]byte(agentID))
 	return hex.EncodeToString(sum[:])[:8]
-}
-
-func sessionLabel(agentID string) string {
-	return "会话 " + sessionID(agentID)
 }
 
 func compact(value float64) string {

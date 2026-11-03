@@ -43,6 +43,8 @@ type dshFileState struct {
 	// view 是注册到 s.files 的实时状态（active/streaming/model/lastLineMS），
 	// 让 DSH 与其他数据源共用「正在生成」与速率估计逻辑。
 	view *fileState
+	// projectResolved 表示会话头 cwd 已给出权威项目名（可能为空）。
+	projectResolved bool
 	// 已见过的 assistant 消息数，用于判断是否仍在流式输出。
 	messageCount int64
 	chunkCount   int64
@@ -55,9 +57,12 @@ type dshDecoder struct {
 }
 
 type dshEvent struct {
-	Type string   `json:"type"`
-	Seq  int64    `json:"seq"`
-	Time int64    `json:"time"`
+	Type string `json:"type"`
+	Seq  int64  `json:"seq"`
+	Time int64  `json:"time"`
+	// Cwd 出现在 session 头事件里，是会话真实的工作目录——比从编码目录名
+	// 反推可靠（目录名用 "-" 同时表示路径分隔符和名称里的连字符，无法无损还原）。
+	Cwd  string   `json:"cwd"`
 	Data *dshData `json:"data"`
 	// 少数版本可能把 usage 放在事件顶层，解析时作为 data.usage 的兜底。
 	Usage *dshUsage `json:"usage"`
@@ -260,8 +265,16 @@ func (s *Service) readDSHFile(path string, now time.Time) {
 	if state.view == nil {
 		// agentID 与响应记录的 agentID 保持一致，快照才能把实时状态与
 		// 实测速率按同一个 agent 聚合。
-		state.view = &fileState{source: "dsh", agentID: "dsh:" + dshSessionID(path)}
+		project := projectName("dsh", path)
+		state.view = &fileState{
+			source:  "dsh",
+			agentID: "dsh:" + dshSessionID(path),
+			project: project,
+		}
 		s.files[path] = state.view
+	}
+	if state.view.project != "" {
+		s.projectByAgent[state.view.agentID] = state.view.project
 	}
 	// 快路径：同一文件大小与 mtime 都未变化，说明没有新事件，不再解压。
 	if size == state.lastSize && modMS == state.lastModMS {
@@ -338,6 +351,19 @@ func (s *Service) dshDecoder() *dshDecoder {
 func (s *Service) ingestDSH(path string, state *dshFileState, line []byte) {
 	var event dshEvent
 	if json.Unmarshal(line, &event) != nil {
+		return
+	}
+	if strings.TrimSpace(event.Cwd) != "" && state != nil && state.view != nil {
+		// 会话头里的 cwd 是权威来源：拿到它就覆盖路径猜测的结果，
+		// 即便它给不出名字（例如根目录）也不再退回目录名反推。
+		name := projectBaseName(event.Cwd)
+		state.view.project = name
+		state.projectResolved = true
+		if name != "" {
+			s.projectByAgent[state.view.agentID] = name
+		} else {
+			delete(s.projectByAgent, state.view.agentID)
+		}
 		return
 	}
 	if event.Type == "step/start" && state != nil && event.Time > 0 && event.Data != nil {

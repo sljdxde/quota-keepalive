@@ -2080,7 +2080,17 @@
     letter-spacing: -.03em; font-variant-numeric: tabular-nums;
   }
   .metric-card .hint { margin-top: 0; color: var(--muted); font-size: 9.5px; }
-  .speed-source-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .speed-source-name {
+    display: flex; align-items: center; gap: 8px; font-weight: 600;
+    min-width: 0;
+  }
+  /* 会话名可能是很长的项目名：单元格内单行显示，超出用省略号，完整名看 title。 */
+  .speed-sessions td:first-child .speed-source-name {
+    max-width: 260px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   .speed-source-name i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--faint);
   }
@@ -2966,6 +2976,14 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
 
   const CUSTOM_BACKGROUND_KEY = "qka.custom-background";
 
+  // 签到管理的折叠状态。这两个集合必须在任何使用它们的函数（含深链入口）
+  // 定义之前声明：模块作用域的 const 存在暂时性死区，声明晚于调用点会抛
+  // ReferenceError 并让整页空白。
+  //
+  // 供应商组默认展开（进来就看得到全部供应商），账号卡片默认折叠。
+  const collapsedProviderGroups = new Set();
+  const expandedAccounts = new Set();
+
   function customBackgroundData() {
     try {
       return localStorage.getItem(CUSTOM_BACKGROUND_KEY) || "";
@@ -3404,8 +3422,8 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       return option.value === target;
     });
     picker.value = hasTarget ? target : "";
-    if (target && hasTarget) expandedAccountGroups.add(target);
-    else expandedAccountGroups.clear();
+    if (target && hasTarget) collapsedProviderGroups.delete(target);
+    else collapsedProviderGroups.clear();
     await renderAccounts();
     if (request !== checkinFocusGeneration) return;
 
@@ -4670,7 +4688,12 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       const dot = document.createElement("i");
       dot.className = session.generating ? "active" : "";
       label.appendChild(dot);
-      label.appendChild(document.createTextNode(session.label || "会话"));
+      const sessionName = document.createTextNode(session.label || "会话");
+      label.appendChild(sessionName);
+      label.title = [
+        session.label || "会话",
+        session.model || "",
+      ].filter(Boolean).join(" · ");
       name.appendChild(label);
       tr.appendChild(name);
       [
@@ -4980,11 +5003,6 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   const quotaStates = ["signed_confirmed", "signed_provisional", "already"];
   const checkinTerminalStates = quotaStates.concat(["ineligible", "inactive", "manual_required"]);
   let providersSnapshot = null;
-  // 默认全部折叠：供应商一多时全部展开会让「签到管理」一进来就是几十屏。
-  // 这里记录的是用户本次会话里主动展开过的供应商，其余一律按折叠渲染。
-  const expandedAccountGroups = new Set();
-  // 账号层级默认折叠；键是 provider/account，记住本次会话里展开过哪些账号。
-  const expandedAccounts = new Set();
   let visibleAccountGroupKeys = [];
   let checkinFocusGeneration = 0;
   let accountsRenderGeneration = 0;
@@ -5083,7 +5101,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
     if (!button) return;
     const allCollapsed = visibleAccountGroupKeys.length > 0 &&
       visibleAccountGroupKeys.every(function (key) {
-        return !expandedAccountGroups.has(key);
+        return collapsedProviderGroups.has(key);
       });
     button.textContent = allCollapsed ? "全部展开" : "全部收起";
     button.setAttribute("aria-pressed", allCollapsed ? "true" : "false");
@@ -5091,8 +5109,8 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   }
 
   function setAccountGroupCollapsed(groupKey, collapsed) {
-    if (collapsed) expandedAccountGroups.delete(groupKey);
-    else expandedAccountGroups.add(groupKey);
+    if (collapsed) collapsedProviderGroups.add(groupKey);
+    else collapsedProviderGroups.delete(groupKey);
     document.querySelectorAll("#accounts-body .account-group").forEach(function (group) {
       if (group.dataset.provider !== groupKey) return;
       group.classList.toggle("collapsed", collapsed);
@@ -5193,7 +5211,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       const accounts = provider.accounts || [];
       const groupKey = provider.id;
       const group = document.createElement("div");
-      const collapsed = !expandedAccountGroups.has(groupKey);
+      const collapsed = collapsedProviderGroups.has(groupKey);
       group.className = "card account-group" + (collapsed ? " collapsed" : "");
       group.dataset.provider = groupKey;
       const head = document.createElement("button");
@@ -5223,7 +5241,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
         '<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" ' +
         'stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const toggleGroup = function () {
-        const next = expandedAccountGroups.has(groupKey);
+        const next = collapsedProviderGroups.has(groupKey);
         setAccountGroupCollapsed(groupKey, next);
         syncAccountCollapseButton();
       };
@@ -5396,6 +5414,11 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       syncSelection();
     };
 
+    // 每个模型的最近一次测试结论：只保留在 chip 的点与 title 上。
+    // 必须在下方 chips 循环之前声明——否则 `const` 的暂时性死区会让整个
+    // 渲染函数抛 ReferenceError，签到管理页直接一片空白。
+    const chipByModelId = new Map();
+
     models.forEach(function (model) {
       const chip = document.createElement("button");
       chip.type = "button";
@@ -5434,9 +5457,6 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
     result.className = "model-test-result";
     result.hidden = true;
     panel.appendChild(result);
-
-    // 每个模型的最近一次测试结论：只保留在 chip 的点与 title 上。
-    const chipByModelId = new Map();
 
     function applyModelStatus(modelId, status, detail) {
       const entry = chipByModelId.get(modelId);
@@ -6201,7 +6221,7 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
   document.getElementById("accounts-collapse-all").onclick = function () {
     if (!visibleAccountGroupKeys.length) return;
     const allCollapsed = visibleAccountGroupKeys.every(function (key) {
-      return !expandedAccountGroups.has(key);
+      return collapsedProviderGroups.has(key);
     });
     visibleAccountGroupKeys.forEach(function (key) {
       setAccountGroupCollapsed(key, !allCollapsed);

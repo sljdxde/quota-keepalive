@@ -63,6 +63,14 @@ func (s *Service) ingestCodex(fileID string, state *fileState, line []byte) {
 			}
 		}
 		state.lastLineMS = ts
+		// session_meta 里的 cwd 就是用户的工作目录，用它作为会话名最直观；
+		// 只取目录名，不把整条路径写进快照。
+		if cwd := strings.TrimSpace(envelope.Payload.Cwd); cwd != "" {
+			state.project = projectBaseName(cwd)
+			if state.project != "" {
+				s.projectByAgent[state.agentID] = state.project
+			}
+		}
 		return
 	}
 	if state.createdMS != 0 && ts < state.createdMS-2000 {

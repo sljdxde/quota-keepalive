@@ -739,6 +739,10 @@ function renderSpeedDirectory(sources, sessions, idleCount) {
         const sessionName = document.createElement("span");
         sessionName.className = "agent-session-name";
         sessionName.textContent = session.label || "会话";
+        sessionName.title = [
+          session.label || "会话",
+          session.model || "",
+        ].filter(Boolean).join(" · ");
         const meta = document.createElement("span");
         meta.className = "agent-session-meta";
         meta.textContent = [

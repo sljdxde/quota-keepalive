@@ -306,9 +306,13 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 		sourceRate := ensureSource(rate.source)
 		sourceRate.OutputTokensPerSecond += rate.output
 		sourceRate.TotalTokensPerSecond += rate.total
+		project := s.projectByAgent[agentID]
 		session := SessionSnapshot{
-			ID:                    sessionID(agentID),
-			Label:                 sessionLabel(agentID),
+			ID:      sessionID(agentID),
+			Project: project,
+			// 会话名优先用项目/工作区名；拿不到时回退到模型名，
+			// 最后才是短 ID（避免面板里出现一排含义不明的哈希）。
+			Label:                 sessionDisplayLabel(project, rate.model, agentID),
 			Source:                rate.source,
 			SourceLabel:           sourceLabel(rate.source),
 			Model:                 rate.model,
@@ -396,10 +400,15 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 			continue
 		}
 		seenSession[agentID] = true
+		project := response.project
+		if project == "" {
+			project = s.projectByAgent[agentID]
+		}
 		sessionRows = append(sessionRows, sessionRow{
 			view: SessionSnapshot{
 				ID:          sessionID(agentID),
-				Label:       sessionLabel(agentID),
+				Project:     project,
+				Label:       sessionDisplayLabel(project, response.model, agentID),
 				Source:      response.source,
 				SourceLabel: sourceLabel(response.source),
 				Model:       response.model,
@@ -409,16 +418,24 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 	}
 	// Recent idle sessions remain visible briefly, matching the requested
 	// session-level view without retaining prompts or transcript paths.
-	for agentID, state := range s.files {
-		if seenSession[agentID] || state.lastLineMS == 0 ||
+	// s.files 的键是文件路径，会话身份必须用 state.agentID——否则同一个会话会
+	// 以「路径哈希」和「agentID 哈希」出现两次，且名字永远退回短 ID。
+	for _, state := range s.files {
+		agentID := state.agentID
+		if agentID == "" || seenSession[agentID] || state.lastLineMS == 0 ||
 			nowMS-state.lastLineMS > sessionVisible.Milliseconds() {
 			continue
 		}
 		seenSession[agentID] = true
+		project := state.project
+		if project == "" {
+			project = s.projectByAgent[agentID]
+		}
 		sessionRows = append(sessionRows, sessionRow{
 			view: SessionSnapshot{
 				ID:          sessionID(agentID),
-				Label:       sessionLabel(agentID),
+				Project:     project,
+				Label:       sessionDisplayLabel(project, state.model, agentID),
 				Source:      state.source,
 				SourceLabel: sourceLabel(state.source),
 				Model:       state.model,

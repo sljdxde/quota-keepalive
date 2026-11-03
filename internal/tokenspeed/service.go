@@ -40,6 +40,7 @@ type responseRecord struct {
 	final          bool
 	usage          usage
 	updatedAt      time.Time
+	project        string
 }
 
 type fileState struct {
@@ -60,6 +61,7 @@ type fileState struct {
 	modernUsage   bool
 	lastLineMS    int64
 	model         string
+	project       string
 	prevTotals    *usage
 	claude        claudeFileState
 	workbuddy     workbuddyFileState
@@ -135,9 +137,11 @@ type Service struct {
 	todayBySource      map[string]usage
 	availableSources   map[string]bool
 	opencode           map[string]*opencodeSourceState
-	dsh                map[string]*dshFileState
-	dshDec             *dshDecoder
-	snapshot           Snapshot
+	// projectByAgent 记住每个 agent 的项目名，供会话行展示（不使用提示词内容）。
+	projectByAgent map[string]string
+	dsh            map[string]*dshFileState
+	dshDec         *dshDecoder
+	snapshot       Snapshot
 
 	started bool
 	done    chan struct{}
@@ -163,6 +167,7 @@ func New(cfg Config) *Service {
 		todayContributions: make(map[string]usage),
 		todayBySource:      make(map[string]usage),
 		availableSources:   make(map[string]bool),
+		projectByAgent:     make(map[string]string),
 		opencode:           make(map[string]*opencodeSourceState),
 		dsh:                make(map[string]*dshFileState),
 		snapshot: Snapshot{
@@ -305,9 +310,13 @@ func (s *Service) readFile(path, source string, now time.Time) {
 	state := s.files[path]
 	fresh := state == nil
 	if fresh || info.Size() < state.offset {
-		state = &fileState{source: source, agentID: path}
+		state = &fileState{source: source, agentID: path,
+			project: projectName(source, path)}
 		s.files[path] = state
 		fresh = true
+	}
+	if state.project != "" {
+		s.projectByAgent[state.agentID] = state.project
 	}
 
 	offset := state.offset
@@ -489,6 +498,9 @@ func (s *Service) claim(key, owner string) dedupClaim {
 func (s *Service) upsertRecord(record responseRecord) {
 	if record.endMS <= 0 {
 		return
+	}
+	if record.project == "" {
+		record.project = s.projectByAgent[record.agentID]
 	}
 	s.records[record.key] = record
 	s.trackTodayUsage(record)
