@@ -56,10 +56,38 @@ func TestCheckinManagementUsesGenericProviderLifecycle(t *testing.T) {
 		`head.setAttribute("aria-label"`,
 		`cursor: pointer; user-select: none`,
 		`const collapse = document.createElement("span")`,
+		// 模型测试结论标在 chip 的点上，而不是铺一屏结果列表。
+		`dot.className = "model-test-dot"`,
+		`chip.insertBefore(dot, label)`,
+		`function applyModelStatus(modelId, status, detail)`,
+		`entry.dot.dataset.testState = state`,
+		`applyModelStatus(model.id, tested.ok ? "ok" : "fail", detail)`,
+		`applyModelStatus(model.id, "fail", detail)`,
+		`function renderTestSummary(rows)`,
+		`悬停模型名查看原因`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("签到管理页缺少通用供应商行为 %q", want)
 		}
+	}
+}
+
+// TestModelTestUsesChipDotsNotResultList 锁住展示方式：模型测试结果只体现在
+// chip 的状态点上，不允许再退回「每个模型一行结果」的长列表。
+func TestModelTestUsesChipDotsNotResultList(t *testing.T) {
+	page := accountPage(t)
+	for _, gone := range []string{
+		`model-test-rows`,
+		`model-test-row `,
+		`renderBatchResults`,
+	} {
+		if strings.Contains(page, gone) {
+			t.Errorf("模型测试不应再使用结果列表 %q", gone)
+		}
+	}
+	if !strings.Contains(page, `.model-test-dot[data-test-state="ok"]`) ||
+		!strings.Contains(page, `.model-test-dot[data-test-state="fail"]`) {
+		t.Error("缺少模型测试状态点的绿/红样式")
 	}
 }
 

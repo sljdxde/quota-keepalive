@@ -663,24 +663,44 @@
     background: var(--accent-soft);
     box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--accent) 40%, var(--line));
   }
-  .model-test-summary { font-weight: 600; margin-bottom: 5px; }
-  .model-test-summary.good { color: var(--green); }
-  .model-test-summary.bad { color: var(--red); }
-  .model-test-rows { display: grid; gap: 3px; }
-  .model-test-row {
-    display: flex; align-items: baseline; gap: 8px;
-    padding: 3px 6px; border-radius: 5px;
-    background: color-mix(in srgb, var(--card) 70%, transparent);
-    color: var(--fg-2);
+  /* 模型测试结论直接标在 chip 上：绿点可用 / 红点不可用 / 灰点待测，
+     进行中为脉冲点。详细原因放进 title，不再单独铺结果列表。 */
+  .model-test-dot {
+    flex: none;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--line);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+    transition: background .16s ease, box-shadow .16s ease;
   }
-  .model-test-row b {
-    flex: 0 0 auto; max-width: 46%; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-    font-size: 10.5px; font-weight: 600;
+  .model-test-dot[data-test-state="ok"] {
+    background: var(--green);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--green) 45%, transparent);
   }
-  .model-test-row span { flex: 1; min-width: 0; font-size: 10px; color: var(--muted); }
-  .model-test-row.good b { color: var(--green); }
-  .model-test-row.bad b { color: var(--red); }
+  .model-test-dot[data-test-state="fail"] {
+    background: var(--red);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--red) 45%, transparent);
+  }
+  .model-test-dot[data-test-state="testing"] {
+    background: var(--accent);
+    animation: model-test-pulse .9s ease-in-out infinite;
+  }
+  @keyframes model-test-pulse {
+    0%, 100% { opacity: .35; transform: scale(.85); }
+    50% { opacity: 1; transform: scale(1.15); }
+  }
+  .provider-model-chip[data-test-state="fail"] {
+    box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--red) 42%, var(--line));
+  }
+  .provider-model-chip[data-test-state="ok"] {
+    box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--green) 38%, var(--line));
+  }
+  .provider-model-chip[aria-pressed="true"][data-test-state="ok"] {
+    box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--green) 55%, var(--accent));
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .model-test-dot[data-test-state="testing"] { animation: none; opacity: .8; }
+  }
   .provider-group-footer {
     display: flex; align-items: center; gap: 8px;
     padding: 9px 12px; border-top: .5px solid var(--line-2);
@@ -5350,8 +5370,15 @@
         chip.appendChild(context);
       }
       if (model.id) chip.dataset.modelId = model.id;
+      // 测试结果直接标在模型名上：绿点=可用，红点=不可用，灰点=待测。
+      // 详细原因（HTTP 状态、耗时、错误文案）放 title，不再铺一屏列表。
+      const dot = document.createElement("span");
+      dot.className = "model-test-dot";
+      dot.setAttribute("aria-hidden", "true");
+      chip.insertBefore(dot, label);
       chip.onclick = function () { toggleModel(model); };
       list.appendChild(chip);
+      chipByModelId.set(model.id || "", { chip: chip, dot: dot, model: model });
     });
     panel.appendChild(list);
     footer.appendChild(copy);
@@ -5363,30 +5390,31 @@
     result.hidden = true;
     panel.appendChild(result);
 
-    function renderBatchResults(rows) {
+    // 每个模型的最近一次测试结论：只保留在 chip 的点与 title 上。
+    const chipByModelId = new Map();
+
+    function applyModelStatus(modelId, status, detail) {
+      const entry = chipByModelId.get(modelId);
+      if (!entry) return;
+      const state = status || "idle";
+      entry.chip.dataset.testState = state;
+      entry.dot.dataset.testState = state;
+      const base = entry.model.id || modelLabel(entry.model);
+      const tags = [base];
+      if (entry.model.free) tags.push("免费");
+      if (detail) tags.push(detail);
+      entry.chip.title = tags.join(" · ");
+    }
+
+    function renderTestSummary(rows) {
       result.hidden = false;
       result.className = "model-test-result";
-      result.innerHTML = "";
-      const summary = document.createElement("div");
-      summary.className = "model-test-summary";
       const okCount = rows.filter(function (row) { return row.ok; }).length;
-      summary.textContent = okCount + " / " + rows.length + " 个模型可用";
-      summary.classList.add(okCount === rows.length ? "good" : "bad");
-      result.appendChild(summary);
-      const table = document.createElement("div");
-      table.className = "model-test-rows";
-      rows.forEach(function (row) {
-        const line = document.createElement("div");
-        line.className = "model-test-row " + (row.ok ? "good" : "bad");
-        const name = document.createElement("b");
-        name.textContent = row.model;
-        const detail = document.createElement("span");
-        detail.textContent = row.detail;
-        line.appendChild(name);
-        line.appendChild(detail);
-        table.appendChild(line);
-      });
-      result.appendChild(table);
+      const badCount = rows.length - okCount;
+      result.className = "model-test-result " + (badCount ? "bad" : "good");
+      result.textContent = badCount
+        ? okCount + " 个可用，" + badCount + " 个不可用（悬停模型名查看原因）"
+        : "全部 " + rows.length + " 个模型可用";
     }
 
     test.onclick = async function () {
@@ -5397,35 +5425,32 @@
       result.hidden = false;
       result.className = "model-test-result";
       result.textContent = "正在通过账号 " +
-        displayAccountIdentity(account.masked_identity) + " 测试 " +
+        displayAccountIdentity(account.masked_identity) + " 逐个测试 " +
         picks.length + " 个模型…";
       const rows = [];
+      picks.forEach(function (model) { applyModelStatus(model.id, "testing", "测试中…"); });
       for (let index = 0; index < picks.length; index += 1) {
         const model = picks[index];
         test.textContent = "测试中 " + (index + 1) + "/" + picks.length;
         try {
           const tested = asJSON(await Bound.ProvidersTestModel(
             provider.id, account.key, model.id));
-          rows.push({
-            model: modelLabel(model),
-            ok: !!tested.ok,
-            detail: (tested.message || (tested.ok ? "模型可用" : "模型不可用")) +
-              (tested.status ? " · HTTP " + tested.status : "") +
-              (tested.latency_ms != null ? " · " + tested.latency_ms + " ms" : ""),
-          });
+          const detail = (tested.message || (tested.ok ? "模型可用" : "模型不可用")) +
+            (tested.status ? " · HTTP " + tested.status : "") +
+            (tested.latency_ms != null ? " · " + tested.latency_ms + " ms" : "");
+          applyModelStatus(model.id, tested.ok ? "ok" : "fail", detail);
+          rows.push({ ok: !!tested.ok });
         } catch (err) {
-          rows.push({
-            model: modelLabel(model),
-            ok: false,
-            detail: accountErrorMessage(err, "模型测试失败，请稍后重试。"),
-          });
+          const detail = accountErrorMessage(err, "模型测试失败，请稍后重试。");
+          applyModelStatus(model.id, "fail", detail);
+          rows.push({ ok: false });
         }
         // 批量测试串行发起，避免瞬时打满供应商接口触发风控。
         if (index < picks.length - 1) {
           await new Promise(function (resolve) { setTimeout(resolve, 220); });
         }
       }
-      renderBatchResults(rows);
+      renderTestSummary(rows);
       test.disabled = !account;
       test.textContent = originalLabel;
       syncSelection();
