@@ -38,6 +38,15 @@
     --seg-track: #ececf0;
     --seg-thumb: #ffffff;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+    /* 与主窗口/菜单栏面板同一套字号阶梯，避免三个界面字号各不相同。 */
+    --fs-3xs: 8.5px;
+    --fs-2xs: 9.5px;
+    --fs-xs: 10.5px;
+    --fs-sm: 11.5px;
+    --fs-md: 12.5px;
+    --fs-lg: 14px;
+    --fs-xl: 16px;
+    --fs-2xl: 18px;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -91,8 +100,8 @@
       inset 0 0 0 .5px rgba(236,202,139,.14);
   }
   .brand-tile svg { width: 19px; height: 19px; display: block; }
-  h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
-  .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  h1 { margin: 0; font-size: var(--fs-2xl); font-weight: 650; letter-spacing: -.02em; }
+  .subtitle { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-sm); }
   #form {
     overflow: hidden; border-radius: 12px; background: var(--card);
     box-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(20,22,30,.06);
@@ -119,8 +128,8 @@
   .switch:has(input:checked)::after { transform: translateX(14px); }
   .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
   .copy { min-width: 0; flex: 1; }
-  .copy b { display: block; font-size: 13px; font-weight: 600; }
-  .desc { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  .copy b { display: block; font-size: var(--fs-md); font-weight: 600; }
+  .desc { display: block; margin-top: 3px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.45; }
   .select-row { align-items: center; }
   .choice {
     display: flex; flex: none; gap: 2px; padding: 3px;
@@ -128,7 +137,7 @@
   }
   .choice button {
     height: 26px; padding: 0 9px; border: 0; border-radius: 6px;
-    color: var(--muted); background: transparent; font-size: 11.5px;
+    color: var(--muted); background: transparent; font-size: var(--fs-sm);
   }
   .choice button:hover { color: var(--fg); }
   .choice button.active {
@@ -152,7 +161,7 @@
     border: 0; border-radius: 7px; appearance: none; -webkit-appearance: none;
     color: var(--fg); background: var(--card);
     box-shadow: inset 0 0 0 .5px var(--line);
-    font-size: 12px;
+    font-size: var(--fs-sm);
   }
   .select-control:hover {
     background: var(--card-2);
@@ -162,7 +171,7 @@
   .hint {
     margin: 12px 0 0; padding: 9px 11px; border-radius: 9px;
     color: var(--fg-2); background: var(--accent-soft);
-    font-size: 11.5px; line-height: 1.45;
+    font-size: var(--fs-sm); line-height: 1.45;
   }
   .schedule-card {
     margin-top: 14px; overflow: hidden; border-radius: 12px;
@@ -174,14 +183,14 @@
     padding: 12px 14px 10px;
   }
   .schedule-head .copy { flex: 1; min-width: 0; }
-  .schedule-head b { display: block; font-size: 13px; font-weight: 620; }
-  .schedule-head small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+  .schedule-head b { display: block; font-size: var(--fs-md); font-weight: 620; }
+  .schedule-head small { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-sm); }
   .sched-state {
     display: inline-flex; align-items: center; gap: 5px;
     min-height: 22px; padding: 1px 7px; border-radius: 6px;
     color: var(--muted); background: var(--card-2);
     box-shadow: inset 0 0 0 .5px var(--line);
-    font-size: 11px; font-weight: 600; white-space: nowrap;
+    font-size: var(--fs-sm); font-weight: 600; white-space: nowrap;
   }
   .sched-state.on { color: var(--accent); background: var(--accent-soft); box-shadow: none; }
   .sched-state.warn { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); box-shadow: none; }
@@ -189,7 +198,7 @@
     display: grid; grid-template-columns: 92px minmax(0, 1fr);
     gap: 6px 10px; padding: 10px 14px 13px;
     border-top: .5px solid var(--line-2);
-    color: var(--fg-2); font-size: 11.5px;
+    color: var(--fg-2); font-size: var(--fs-sm);
   }
   .schedule-status dt { color: var(--muted); }
   .schedule-status dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
