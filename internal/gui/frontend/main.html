@@ -537,6 +537,37 @@
   .account-group-body { min-width: 0; }
   .account-group.collapsed .account-group-body { display: none; }
   .account-card { padding: 11px 13px; }
+  /* 账号层折叠：头部常驻可点，body 收起后只留一行账号摘要。 */
+  .account-collapse-head {
+    cursor: pointer;
+    user-select: none;
+    margin: -11px -13px 0;
+    padding: 11px 13px;
+    border-radius: 10px 10px 0 0;
+  }
+  .account-collapse-head:hover { background: color-mix(in srgb, var(--card-2) 55%, transparent); }
+  .account-collapse-head:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .account-card.collapsed .account-collapse-head { border-radius: 10px; }
+  .account-card.collapsed .account-body { display: none; }
+  .account-collapse {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 2px;
+    color: var(--muted);
+    transition: transform .18s ease, color .18s ease;
+  }
+  .account-collapse svg { width: 14px; height: 14px; }
+  .account-collapse-head:hover .account-collapse { color: var(--fg-2); }
+  .account-card.collapsed .account-collapse { transform: rotate(-90deg); }
+  @media (prefers-reduced-motion: reduce) {
+    .account-collapse { transition: none; }
+  }
   .account-card + .account-card { border-top: .5px solid var(--line-2); }
   .account-card.bad { background: var(--red-soft); }
   .account-top { display: flex; align-items: flex-start; gap: 10px; }
@@ -2901,7 +2932,12 @@
   import { petAimPoint } from "./assets/pet-gaze.js";
   import { resolveAccountProviderView } from "./assets/account-view.js";
   import { createPokemon3D } from "./assets/pokemon-3d.js";
-  import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.js";
+  import {
+  accountStateKey,
+  nextAccountExpansion,
+  shouldCollapseAccount,
+} from "./assets/account-collapse.js"
+import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.js";
   import * as Bound from "./bindings/qka/internal/gui/boundservice.js";
   import { Events } from "/wails/runtime.js";
   import {
@@ -3377,6 +3413,13 @@
     if (accountKey) {
       card = Array.from(document.querySelectorAll("#accounts-body .account-card"))
         .find(function (node) { return node.dataset.accountKey === accountKey; }) || null;
+      // 深链跳到某个账号时，卡片必须展开，否则跳到的是收起来的一行标题。
+      if (card) {
+        expandedAccounts.add(accountStateKey(card.dataset.provider, card.dataset.accountKey));
+        card.classList.remove("collapsed");
+        const head = card.querySelector(".account-collapse-head");
+        if (head) head.setAttribute("aria-expanded", "true");
+      }
     }
     if (!card && scope === "attention") {
       card = document.querySelector('#accounts-body .account-card[data-attention="true"]');
@@ -4940,6 +4983,8 @@
   // 默认全部折叠：供应商一多时全部展开会让「签到管理」一进来就是几十屏。
   // 这里记录的是用户本次会话里主动展开过的供应商，其余一律按折叠渲染。
   const expandedAccountGroups = new Set();
+  // 账号层级默认折叠；键是 provider/account，记住本次会话里展开过哪些账号。
+  const expandedAccounts = new Set();
   let visibleAccountGroupKeys = [];
   let checkinFocusGeneration = 0;
   let accountsRenderGeneration = 0;
@@ -5595,7 +5640,9 @@
       row.appendChild(actions);
       taskList.appendChild(row);
     });
-    box.appendChild(taskList);
+    const body = document.createElement("div");
+    body.className = "account-body";
+    body.appendChild(taskList);
 
     const actions = document.createElement("div");
     actions.className = "account-actions";
@@ -5644,7 +5691,44 @@
       }
     };
     actions.appendChild(del);
-    box.appendChild(actions);
+    body.appendChild(actions);
+    box.appendChild(body);
+
+    // 账号层折叠：头部常驻（身份、状态、启用开关），签到行与操作按钮收进 body。
+    // 供应商下账号多时，先看到整齐的一列账号，需要哪个再展开哪个。
+    const accountState = accountStateKey(provider.id, account.key || account.id || "");
+    const collapsed = shouldCollapseAccount(expandedAccounts, accountState);
+    box.classList.toggle("collapsed", collapsed);
+    top.classList.add("account-collapse-head");
+    top.setAttribute("role", "button");
+    top.setAttribute("tabindex", "0");
+    top.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    const chevron = document.createElement("span");
+    chevron.className = "account-collapse";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.innerHTML = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+      '<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" ' +
+      'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    top.appendChild(chevron);
+    const toggleAccount = function () {
+      // next=true 表示展开；集合语义与判定都走同一个纯函数，避免两边写反。
+      const next = nextAccountExpansion(expandedAccounts, accountState);
+      if (next) expandedAccounts.add(accountState);
+      else expandedAccounts.delete(accountState);
+      box.classList.toggle("collapsed", !next);
+      top.setAttribute("aria-expanded", next ? "true" : "false");
+    };
+    top.onclick = function (event) {
+      // 启用开关自己处理点击，不应连带折叠整张卡；其余区域都是折叠热区。
+      if (event.target.closest(".switch")) return;
+      toggleAccount();
+    };
+    top.onkeydown = function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target !== top) return;
+      event.preventDefault();
+      toggleAccount();
+    };
     return box;
   }
 

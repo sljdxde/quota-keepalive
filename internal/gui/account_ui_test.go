@@ -65,6 +65,14 @@ func TestCheckinManagementUsesGenericProviderLifecycle(t *testing.T) {
 		`applyModelStatus(model.id, "fail", detail)`,
 		`function renderTestSummary(rows)`,
 		`悬停模型名查看原因`,
+		// 账号层级默认折叠，头部常驻、明细进 body。
+		`const expandedAccounts = new Set()`,
+		`body.className = "account-body"`,
+		`box.classList.toggle("collapsed", collapsed)`,
+		`top.classList.add("account-collapse-head")`,
+		`chevron.className = "account-collapse"`,
+		`if (event.target.closest(".switch")) return`,
+		`expandedAccounts.add(accountStateKey(card.dataset.provider, card.dataset.accountKey))`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("签到管理页缺少通用供应商行为 %q", want)
