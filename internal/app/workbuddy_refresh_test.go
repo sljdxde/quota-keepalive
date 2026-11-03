@@ -142,7 +142,7 @@ func TestWorkBuddyManagedRefreshFailureIsolatesAccountAndReloginRecovers(t *test
 	}
 
 	sink := newWorkBuddyVerificationSink(acct, creds)
-	if err := sink.AcceptVerifiedAccount(ctx, workbuddy.VerifiedAccount{
+	if _, err := sink.AcceptVerifiedAccount(ctx, workbuddy.VerifiedAccount{
 		Target: "workbuddy-cn", AccountID: "wb_one", SourceID: "wbm_one",
 		DisplayName: "****1111", MaskedIdentity: "****1111",
 	}, workBuddyCredential(

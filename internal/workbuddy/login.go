@@ -536,6 +536,12 @@ func (s *LoginService) prepareAuthURL(raw string) (string, error) {
 	q := u.Query()
 	q.Set("version", loginPageVer)
 	q.Set("loginSessionId", sessionID)
+	// force_login 是官方登录页支持的开关（取值为 1/true/yes）：带上它就会跳过
+	// 「浏览器里已有登录态就直接静默授权」的路径，直接进入账号选择。
+	// 不加这个参数时，用户想添加第二个账号必须先手点页面上的「切换账号」，
+	// 第一次点「登录 / 添加账号」只会把浏览器里已有的账号再授权一遍——这就是
+	// 「要点两次才能加成功」的原因。
+	q.Set("force_login", "1")
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

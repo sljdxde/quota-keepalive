@@ -188,6 +188,11 @@ func TestBrowserLoginStoresPendingCredentialWithoutCreatingAccount(t *testing.T)
 	if openedURL.Query().Get("version") != "2.0.0" || openedURL.Query().Get("loginSessionId") == "" {
 		t.Errorf("authUrl 缺少协议参数: %s", opened)
 	}
+	// 必须强制走登录页而不是静默授权：否则浏览器里已有账号时，第一次点
+	// 「登录 / 添加账号」只会把旧账号再授权一遍，用户得点两次才能加新账号。
+	if got := openedURL.Query().Get("force_login"); got != "1" {
+		t.Errorf("authUrl 必须带 force_login=1 强制切换账号，实际 %q (%s)", got, opened)
+	}
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

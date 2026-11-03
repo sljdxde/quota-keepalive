@@ -58,13 +58,15 @@ type verificationSink struct {
 	credential []byte
 	calls      int
 	err        error
+	// existing 模拟「该账号此前已存在」，用于区分「新添加」与「已存在只刷新凭据」。
+	existing bool
 }
 
-func (s *verificationSink) AcceptVerifiedAccount(_ context.Context, account VerifiedAccount, credential []byte) error {
+func (s *verificationSink) AcceptVerifiedAccount(_ context.Context, account VerifiedAccount, credential []byte) (bool, error) {
 	s.calls++
 	s.account = account
 	s.credential = append([]byte(nil), credential...)
-	return s.err
+	return !s.existing, s.err
 }
 
 func TestVerifyReadOnlyCreatesMaskedManagedAccountAndDeletesPendingCredential(t *testing.T) {
@@ -495,5 +497,59 @@ func TestVerifyInfersEnterpriseIdentityFromAccounts(t *testing.T) {
 	})
 	if sink.account.AccountID != want.AccountID || sink.account.SourceID != want.SourceID {
 		t.Errorf("企业账号稳定标识应包含补全后的 enterpriseId: got=%+v want=%+v", sink.account, want)
+	}
+}
+
+// TestVerifyReportsExistingAccountInsteadOfPretendingItIsNew 验证重复登录的结论
+// 要说准：同一账号再次授权时，应当看到「此前已存在、已刷新凭据」，
+// 而不是又一句「已添加」——这正是用户以为「得登录两次才算成功」的根源。
+func TestVerifyReportsExistingAccountInsteadOfPretendingItIsNew(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing bool
+		want     string
+		forbid   string
+	}{
+		{"new account", false, "已添加并启用账号", "已存在"},
+		{"already present", true, "该账号此前已存在，已刷新登录凭据", "已添加"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/billing/meter/get-user-resource-summary" {
+					t.Errorf("非预期请求: %s", r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				writeEnvelope(t, w, map[string]any{"IsPaidUser": true})
+			}))
+			defer target.Close()
+
+			store := newVerificationStore()
+			credential := PendingCredential{
+				Target: "workbuddy-cn", SessionID: "session-dup", Protocol: ProtocolBaseline,
+				AccessToken: "access-for-test", RefreshToken: "refresh-for-test",
+				Domain: "copilot.tencent.com", UID: "uid-for-test-123456",
+			}
+			raw, _ := json.Marshal(credential)
+			if err := store.Save(context.Background(), credential.SessionID, raw); err != nil {
+				t.Fatal(err)
+			}
+			sink := &verificationSink{existing: tc.existing}
+			svc := NewVerificationService(VerificationConfig{
+				BaseURL:      target.URL,
+				PendingStore: store,
+				Sink:         sink,
+			})
+			outcome := svc.Verify(context.Background(), credential)
+			if outcome.Status != LoginVerified {
+				t.Fatalf("状态应为 verified，实际 %s（%s）", outcome.Status, outcome.Message)
+			}
+			if !strings.Contains(outcome.Message, tc.want) {
+				t.Fatalf("文案应包含 %q，实际 %q", tc.want, outcome.Message)
+			}
+			if strings.Contains(outcome.Message, tc.forbid) {
+				t.Fatalf("文案不应包含 %q，实际 %q", tc.forbid, outcome.Message)
+			}
+		})
 	}
 }

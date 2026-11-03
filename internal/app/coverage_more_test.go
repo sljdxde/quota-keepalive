@@ -188,7 +188,7 @@ func TestWorkBuddyVerificationManagedSourceFailure(t *testing.T) {
 	execCoverageSQL(t, a, `
 CREATE TRIGGER fail_managed_source_update BEFORE UPDATE ON sources
 BEGIN SELECT RAISE(ABORT, 'source update failed'); END`)
-	if err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
+	if _, err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
 		ctx, verified, []byte("secret"),
 	); err == nil {
 		t.Fatal("managed source establishment failure must surface")

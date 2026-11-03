@@ -421,7 +421,7 @@ func TestWorkBuddyVerificationFailureBranches(t *testing.T) {
 	}
 
 	t.Run("not wired", func(t *testing.T) {
-		if err := (&workBuddyVerificationSink{}).AcceptVerifiedAccount(
+		if _, err := (&workBuddyVerificationSink{}).AcceptVerifiedAccount(
 			ctx, verified, []byte("secret"),
 		); err == nil {
 			t.Fatal("verification sink without services should fail")
@@ -442,7 +442,7 @@ func TestWorkBuddyVerificationFailureBranches(t *testing.T) {
 		if _, err := st.DB().Exec(`DROP TABLE accounts`); err != nil {
 			t.Fatal(err)
 		}
-		if err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
+		if _, err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
 			ctx, verified, []byte("secret"),
 		); err == nil {
 			t.Fatal("non-NotFound account lookup error should be returned")
@@ -471,7 +471,7 @@ BEGIN
 END;`); err != nil {
 			t.Fatal(err)
 		}
-		if err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
+		if _, err := newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
 			ctx, verified, []byte("new-secret"),
 		); err == nil {
 			t.Fatal("new account write failure should be returned")
@@ -523,7 +523,7 @@ BEGIN
 END;`); err != nil {
 			t.Fatal(err)
 		}
-		err = newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
+		_, err = newWorkBuddyVerificationSink(acct, creds).AcceptVerifiedAccount(
 			ctx, verified, []byte("new-secret"),
 		)
 		if err == nil || !strings.Contains(err.Error(), "恢复旧凭据失败") {

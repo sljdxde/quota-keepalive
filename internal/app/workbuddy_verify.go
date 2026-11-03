@@ -27,9 +27,9 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 	ctx context.Context,
 	account workbuddy.VerifiedAccount,
 	credential []byte,
-) error {
+) (created bool, err error) {
 	if s.accounts == nil || s.credentials == nil {
-		return errors.New("账号或凭据服务未接线")
+		return false, errors.New("账号或凭据服务未接线")
 	}
 	ref := capabilities.CredentialRef{
 		Target:    account.Target,
@@ -40,7 +40,7 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 	_, getErr := s.accounts.Get(ctx, account.Target, account.AccountID)
 	existing := getErr == nil
 	if getErr != nil && !errors.Is(getErr, sql.ErrNoRows) {
-		return getErr
+		return false, getErr
 	}
 
 	var oldSecret string
@@ -51,29 +51,29 @@ func (s *workBuddyVerificationSink) AcceptVerifiedAccount(
 	}
 
 	if err := s.credentials.Persist(ctx, ref, string(credential)); err != nil {
-		return err
+		return false, err
 	}
-	err := s.accounts.Discover(ctx, account.Target, []accounts.DiscoveredAccount{{
+	discoverErr := s.accounts.Discover(ctx, account.Target, []accounts.DiscoveredAccount{{
 		ID:             account.AccountID,
 		DisplayName:    account.DisplayName,
 		MaskedIdentity: account.MaskedIdentity,
 		SourceID:       account.SourceID,
 		SourceKind:     accounts.KindManaged,
 	}})
-	if err != nil {
+	if discoverErr != nil {
 		if existing && oldSecret != "" {
 			if restoreErr := s.credentials.Persist(ctx, ref, oldSecret); restoreErr != nil {
-				return fmt.Errorf("%w; 恢复旧凭据失败: %v", err, restoreErr)
+				return false, fmt.Errorf("%w; 恢复旧凭据失败: %v", discoverErr, restoreErr)
 			}
 		} else if !existing {
 			_ = s.credentials.Delete(ctx, ref)
 		}
-		return err
+		return false, discoverErr
 	}
 	if err := s.accounts.EstablishManagedSource(
 		ctx, account.Target, account.AccountID, account.SourceID,
 	); err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return !existing, nil
 }

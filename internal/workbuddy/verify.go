@@ -36,8 +36,11 @@ type VerifiedAccount struct {
 // VerificationSink persists the managed credential and idempotently upserts
 // the verified account/source. It must not alter an existing account's enabled
 // or pinned state.
+//
+// created 为 false 表示该账号此前已存在（本次只刷新了凭据）。上层用它把结论说准：
+// 用户连点两次登录时，第二次应当看到「该账号已存在」，而不是又一句「已添加」。
 type VerificationSink interface {
-	AcceptVerifiedAccount(ctx context.Context, account VerifiedAccount, credential []byte) error
+	AcceptVerifiedAccount(ctx context.Context, account VerifiedAccount, credential []byte) (created bool, err error)
 }
 
 // VerificationOutcome is a credential-free state suitable for the GUI.
@@ -115,15 +118,20 @@ func (s *VerificationService) Verify(ctx context.Context, credential PendingCred
 	if s.sink == nil {
 		return retryableVerification("账号存储暂不可用，请重试；未创建账号")
 	}
-	if err := s.sink.AcceptVerifiedAccount(ctx, account, raw); err != nil {
+	created, err := s.sink.AcceptVerifiedAccount(ctx, account, raw)
+	if err != nil {
 		return retryableVerification("无法保存已验证账号，请重试；未创建账号")
 	}
 	if err := s.deletePendingStrict(ctx, credential.SessionID); err != nil {
 		return retryableVerification("账号已验证，但临时登录凭据清理失败，请重试")
 	}
+	message := "只读验证通过，已添加并启用账号"
+	if !created {
+		message = "只读验证通过，该账号此前已存在，已刷新登录凭据"
+	}
 	return VerificationOutcome{
 		Status:  LoginVerified,
-		Message: "只读验证通过，已添加并启用账号",
+		Message: message,
 	}
 }
 

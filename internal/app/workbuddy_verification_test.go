@@ -87,7 +87,7 @@ func TestWorkBuddyVerificationSinkPersistsCredentialAndPreservesExistingState(t 
 	}
 	credential := []byte(`{"access_token":"managed-access","refresh_token":"managed-refresh"}`)
 
-	if err := sink.AcceptVerifiedAccount(ctx, verified, credential); err != nil {
+	if _, err := sink.AcceptVerifiedAccount(ctx, verified, credential); err != nil {
 		t.Fatalf("保存已验证账号失败: %v", err)
 	}
 	acc, err := acct.Get(ctx, "workbuddy-cn", verified.AccountID)
@@ -134,7 +134,7 @@ func TestWorkBuddyVerificationSinkPersistsCredentialAndPreservesExistingState(t 
 	if err := acct.MarkSourceFailure(ctx, "workbuddy-cn", verified.AccountID, verified.SourceID); err != nil {
 		t.Fatal(err)
 	}
-	if err := sink.AcceptVerifiedAccount(ctx, verified, credential); err != nil {
+	if _, err := sink.AcceptVerifiedAccount(ctx, verified, credential); err != nil {
 		t.Fatalf("重复验证失败: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestWorkBuddyVerificationSinkDoesNotCreateAccountWhenCredentialPersistFails
 		nil,
 	)
 	sink := newWorkBuddyVerificationSink(acct, creds)
-	err = sink.AcceptVerifiedAccount(context.Background(), workbuddy.VerifiedAccount{
+	_, err = sink.AcceptVerifiedAccount(context.Background(), workbuddy.VerifiedAccount{
 		Target: "workbuddy-cn", AccountID: "wb_failed", SourceID: "wbm_failed",
 		DisplayName: "****0000", MaskedIdentity: "****0000",
 	}, []byte(`{"access_token":"secret"}`))
@@ -231,7 +231,7 @@ END;`); err != nil {
 	}
 
 	sink := newWorkBuddyVerificationSink(acct, creds)
-	err = sink.AcceptVerifiedAccount(ctx, verified, []byte(`{"access_token":"new-secret"}`))
+	_, err = sink.AcceptVerifiedAccount(ctx, verified, []byte(`{"access_token":"new-secret"}`))
 	if err == nil {
 		t.Fatal("账号写库失败时应返回错误")
 	}
