@@ -636,3 +636,51 @@ func TestResponseMeasureStartAfterEnd(t *testing.T) {
 		t.Fatalf("高速 floor = %d/%d", tokens, window)
 	}
 }
+
+// TestSnapshotHidesUnusedSources 验证「没用过的 Agent 不占行」：
+// 配置里注册了 5 个来源，只有 1 个今天有消耗，Sources 只能出现 1 行，
+// 其余计入 IdleSourceCount，供界面提示「另有 N 个未使用」。
+func TestSnapshotHidesUnusedSources(t *testing.T) {
+	now := time.Now().UTC()
+	svc := newCoverageService(now)
+	nowMS := now.UnixMilli()
+	for _, source := range []string{"codex", "claude", "dsh", "qoder", "zcode"} {
+		svc.availableSources[source] = true
+	}
+	svc.todayBySource["dsh"] = usage{input: 100, output: 50, total: 150}
+	svc.todayTotal = 150
+	svc.records["dsh:1"] = responseRecord{
+		key: "dsh:1", source: "dsh", agentID: "dsh:s1",
+		hasStart: true, startMS: nowMS - 2000,
+		hasDecodeStart: true, decodeStartMS: nowMS - 1000,
+		endMS: nowMS - 200, final: true,
+		usage: usage{input: 100, output: 50, total: 150},
+	}
+	snapshot := svc.computeSnapshot(now)
+	if len(snapshot.Sources) != 1 {
+		t.Fatalf("只应有 1 行来源，实际 %d: %+v", len(snapshot.Sources), snapshot.Sources)
+	}
+	if snapshot.Sources[0].Source != "dsh" || snapshot.Sources[0].TodayTotalTokens != 150 {
+		t.Fatalf("应只展示用过的 dsh: %+v", snapshot.Sources[0])
+	}
+	if snapshot.IdleSourceCount != 4 {
+		t.Fatalf("未使用来源数 = %d, want 4", snapshot.IdleSourceCount)
+	}
+}
+
+// TestSnapshotAlwaysListsSourceWithTodayUsage 验证「今天用过但此刻没有速率」的来源
+// 仍要出现在列表里，避免今日总量非零但来源列表为空。
+func TestSnapshotAlwaysListsSourceWithTodayUsage(t *testing.T) {
+	now := time.Now().UTC()
+	svc := newCoverageService(now)
+	svc.availableSources["qoder"] = true
+	svc.todayBySource["qoder"] = usage{input: 10, output: 5, total: 15}
+	svc.todayTotal = 15
+	snapshot := svc.computeSnapshot(now)
+	if len(snapshot.Sources) != 1 || snapshot.Sources[0].Source != "qoder" {
+		t.Fatalf("有今日消耗的来源必须出现: %+v", snapshot.Sources)
+	}
+	if snapshot.Sources[0].TodayTotalTokens != 15 {
+		t.Fatalf("今日总量错误: %+v", snapshot.Sources[0])
+	}
+}

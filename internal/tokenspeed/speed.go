@@ -300,9 +300,6 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 		}
 		return rate
 	}
-	for source := range s.availableSources {
-		ensureSource(source)
-	}
 	for agentID, rate := range ratesByAgent {
 		outputTokens += rate.output
 		totalTokens += rate.total
@@ -344,6 +341,15 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 	out.TitleTheme = TitleThemeLabel(out.TitleThemeID)
 	out.TitleCatalog = TitleThemeCatalog()
 
+	// 今天有消耗、但此刻没有速率的来源也要有一行（否则今日总量对的、列表却是空）。
+	for source, today := range s.todayBySource {
+		if today.total > 0 {
+			ensureSource(source)
+		}
+	}
+	// 只保留「真正用过」的来源：今天有消耗、正在生成或还有速率。配置里存在但
+	// 今天没用过的来源不再占一行，避免一上来铺满整屏的空 Agent。
+	used := make(map[string]struct{}, len(ratesBySource))
 	for source, rate := range ratesBySource {
 		rate.OutputTokensPerSecond = roundRate(rate.OutputTokensPerSecond)
 		rate.TotalTokensPerSecond = roundRate(rate.TotalTokensPerSecond)
@@ -353,7 +359,16 @@ func (s *Service) computeSnapshot(now time.Time) Snapshot {
 		rate.TodayInputTokens = today.input
 		rate.TodayOutputTokens = today.output
 		rate.TodayTotalTokens = today.total
-		out.Sources = append(out.Sources, *rate)
+		if rate.GeneratingAgents > 0 || rate.OutputTokensPerSecond > 0 ||
+			rate.TotalTokensPerSecond > 0 || today.total > 0 {
+			used[source] = struct{}{}
+			out.Sources = append(out.Sources, *rate)
+		}
+	}
+	for source := range s.availableSources {
+		if _, ok := used[source]; !ok {
+			out.IdleSourceCount++
+		}
 	}
 	sort.SliceStable(out.Sources, func(i, j int) bool {
 		if (out.Sources[i].GeneratingAgents > 0) != (out.Sources[j].GeneratingAgents > 0) {

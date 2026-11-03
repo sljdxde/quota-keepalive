@@ -13,7 +13,11 @@ import (
 )
 
 const (
-	liveWindow       = 3 * time.Second
+	// liveWindow 是「最近一次已完成响应」的实测速率在仪表上保留多久。
+	// 3 秒过于苛刻：一次回答刚结束、用户抬头看表就已经归零，界面上表现为
+	// 「明明刚跑完却没有速度」。UI 文案本来就写着「显示最近一次可靠响应速度」，
+	// 因此保留 15 秒，既不会把陈旧数据当实时，也不会一闪就没。
+	liveWindow       = 15 * time.Second
 	recentReference  = 10 * time.Minute
 	recentCount      = 3
 	fallback         = 30 * time.Minute
@@ -141,7 +145,10 @@ type Snapshot struct {
 	TitleCatalog          []TitleThemeDefinition `json:"title_catalog"`
 	Sources               []SourceSnapshot       `json:"sources"`
 	Sessions              []SessionSnapshot      `json:"sessions"`
-	UpdatedAt             string                 `json:"updated_at"`
+	// IdleSourceCount 是「已配置但今天完全没用过」的数据源数量；界面只用它
+	// 提示「另有 N 个未使用」，不再为它们各占一行空白卡片。
+	IdleSourceCount int    `json:"idle_source_count"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 // SourceSnapshot is one agent family's contribution to the live window.

@@ -593,7 +593,7 @@ function seedSpeedHistory(output) {
   speedHistorySeeded = true;
 }
 
-function renderSpeedDirectory(sources, sessions) {
+function renderSpeedDirectory(sources, sessions, idleCount) {
   const list = document.getElementById("panel-sources");
   list.innerHTML = "";
   const sourceRows = Array.isArray(sources) ? sources : [];
@@ -825,6 +825,19 @@ function renderSpeedDirectory(sources, sessions) {
     if (!rendered.expanded) row.classList.add("is-collapsed");
     list.appendChild(row);
   });
+
+  // 今天没用过的 Agent 不再各占一张空卡片，只在末尾用一行提示数量。
+  if (!list.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "panel-sources-empty";
+    empty.textContent = "今天还没有 Agent 使用记录，开始对话后这里会出现";
+    list.appendChild(empty);
+  } else if (Number(idleCount) > 0) {
+    const hint = document.createElement("p");
+    hint.className = "panel-sources-empty";
+    hint.textContent = "另有 " + Number(idleCount) + " 个已配置的 Agent 今天未使用";
+    list.appendChild(hint);
+  }
 }
 
 function formatUpdated(value) {
@@ -907,7 +920,8 @@ function renderSpeed(raw) {
   document.getElementById("panel-speed-today").textContent =
     compactTokenCount(Number(view.today_total_tokens) || 0);
   renderPanelTitle(view);
-  renderSpeedDirectory(view.sources || [], view.sessions || []);
+  renderSpeedDirectory(view.sources || [], view.sessions || [],
+    Number(view.idle_source_count) || 0);
   const badge = document.getElementById("speed-badge");
   badge.hidden = output <= 0 && generating === 0;
   badge.textContent = generating > 0 ? String(generating) : compactTokenRate(output);

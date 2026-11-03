@@ -116,9 +116,9 @@ func TestDSHParsesTodayUsageFromZstdSession(t *testing.T) {
 		source.TodayTotalTokens != 17661 {
 		t.Fatalf("来源今日字段错误: %+v", source)
 	}
-	// DSH 没有首 token 时间戳：不得出现实测速率。
+	// 该 fixture 没有 data.stream 时间线（旧格式）：不得出现实测速率。
 	if snapshot.OutputTokensPerSecond != 0 || source.OutputTokensPerSecond != 0 {
-		t.Fatalf("DSH 不应输出实测速率: %+v", snapshot)
+		t.Fatalf("无时间线事件不应输出实测速率: %+v", snapshot)
 	}
 	if len(snapshot.Sessions) != 1 {
 		t.Fatalf("会话数 = %d, want 1: %+v", len(snapshot.Sessions), snapshot.Sessions)

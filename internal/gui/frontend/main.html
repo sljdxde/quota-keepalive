@@ -2044,6 +2044,10 @@
   .source-logo .provider-glyph {
     width: 14px; height: 14px; display: block; background: currentColor;
   }
+  .speed-idle-hint td {
+    padding: 9px 12px; color: var(--muted); font-size: 10.5px;
+    border-top: .5px dashed var(--line-2);
+  }
   .source-logo.dsh { color: #4d6bfe; background: #eef1ff; }
   html[data-theme="dark"] .source-logo.dsh { color: #9db0ff; background: #232a45; }
   .source-logo.codex { color: #1f2937; background: #eef2f7; }
@@ -4577,7 +4581,19 @@
     });
     if (!sources.length) {
       body.innerHTML =
-        '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted)">未发现本机 Agent 数据源</td></tr>';
+        '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--muted)">' +
+        '今天还没有 Agent 使用记录，开始对话后这里会出现对应来源</td></tr>';
+    } else {
+      const idleCount = Number(view.idle_source_count) || 0;
+      if (idleCount > 0) {
+        const foot = document.createElement("tr");
+        foot.className = "speed-idle-hint";
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.textContent = "另有 " + idleCount + " 个已配置的 Agent 今天未使用，暂不显示";
+        foot.appendChild(cell);
+        body.appendChild(foot);
+      }
     }
 
     const sessions = view.sessions || [];

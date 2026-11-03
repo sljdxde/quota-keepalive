@@ -198,17 +198,17 @@ func TestDSHDecodeRangeAndSessionID(t *testing.T) {
 	service := newCoverageService(dshFixedNow())
 
 	t.Run("空区间", func(t *testing.T) {
-		if err := service.decodeDSHRange(&stubTranscriptFile{}, "x", 10, 10); err != nil {
+		if err := service.decodeDSHRange(&stubTranscriptFile{}, "x", &dshFileState{}, 10, 10); err != nil {
 			t.Fatalf("空区间应直接返回: %v", err)
 		}
 	})
 	t.Run("Seek 失败", func(t *testing.T) {
-		if err := service.decodeDSHRange(&stubTranscriptFile{seekErr: errors.New("seek")}, "x", 0, 10); err == nil {
+		if err := service.decodeDSHRange(&stubTranscriptFile{seekErr: errors.New("seek")}, "x", &dshFileState{}, 0, 10); err == nil {
 			t.Fatal("Seek 失败应回传错误")
 		}
 	})
 	t.Run("非 zstd 数据 Reset 失败", func(t *testing.T) {
-		if err := service.decodeDSHRange(&stubTranscriptFile{data: []byte("plain text")}, "x", 0, 10); err == nil {
+		if err := service.decodeDSHRange(&stubTranscriptFile{data: []byte("plain text")}, "x", &dshFileState{}, 0, 10); err == nil {
 			t.Fatal("非 zstd 数据应回传错误")
 		}
 	})
@@ -246,21 +246,22 @@ func TestDSHIngestRejectionsAndFallbacks(t *testing.T) {
 		`{"type":"assistant/message","time":0,"data":{"message":{"role":"assistant"},"usage":{"inputTokens":1,"outputTokens":1,"totalTokens":2}}}`,
 		`{"type":"assistant/message","time":1792486956000,"data":{"message":{"role":"assistant"},"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}}`,
 	}
+	state := &dshFileState{}
 	for _, line := range lines {
-		service.ingestDSH(path, []byte(line))
+		service.ingestDSH(path, state, []byte(line))
 	}
 	if len(service.records) != 0 {
 		t.Fatalf("拒绝样例不应产生记录: %+v", service.records)
 	}
 
 	// 顶层 usage 兜底 + 空 id 用 seq 兜底。
-	service.ingestDSH(path, []byte(`{"type":"assistant/message","seq":7,"time":1792486956000,`+
+	service.ingestDSH(path, state, []byte(`{"type":"assistant/message","seq":7,"time":1792486956000,`+
 		`"data":{"message":{"role":"assistant"}},"usage":{"inputTokens":1,"outputTokens":2,"totalTokens":3}}`))
 	if _, ok := service.records["dsh:ingest:7"]; !ok {
 		t.Fatalf("顶层 usage/seq 兜底失败: %+v", service.records)
 	}
 	// 空 id 且 seq 为 0：用时间戳兜底；同时覆盖缺 total 的求和兜底。
-	service.ingestDSH(path, []byte(`{"type":"assistant/message","time":1792486957000,`+
+	service.ingestDSH(path, state, []byte(`{"type":"assistant/message","time":1792486957000,`+
 		`"data":{"message":{"role":"assistant"},"source":{"model":"m"},"usage":{"inputTokens":1,"outputTokens":2,"cacheReadTokens":3,"cacheWriteTokens":4}}}`))
 	record, ok := service.records["dsh:ingest:1792486957000"]
 	if !ok || record.usage.total != 10 || record.usage.cached != 3 || record.usage.cacheNew != 4 {
