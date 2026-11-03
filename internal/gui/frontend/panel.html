@@ -459,6 +459,12 @@
     box-shadow: var(--seg-edge);
   }
   .tab svg { width: 13px; height: 13px; flex: none; }
+  /* 面板很窄：标签必须单行，宁可省略也不能折行（折行会把分段控件撑成两排文字）。 */
+  .tab > span:not(.tab-badge) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .tab-badge {
     min-width: 15px;
     height: 15px;
@@ -1751,7 +1757,7 @@
                 stroke-linecap="round"/>
           <circle cx="8" cy="9" r="1.15" fill="currentColor"/>
         </svg>
-        <span>Token 速度</span>
+        <span>速度</span>
         <span class="tab-badge" id="speed-badge" hidden>0</span>
       </button>
       <button class="tab" id="tab-pet" type="button" role="tab"

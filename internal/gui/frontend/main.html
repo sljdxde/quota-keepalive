@@ -3348,8 +3348,8 @@
       return option.value === target;
     });
     picker.value = hasTarget ? target : "";
-    if (target && hasTarget) collapsedAccountGroups.delete(target);
-    else collapsedAccountGroups.clear();
+    if (target && hasTarget) expandedAccountGroups.add(target);
+    else expandedAccountGroups.clear();
     await renderAccounts();
     if (request !== checkinFocusGeneration) return;
 
@@ -4917,7 +4917,9 @@
   const quotaStates = ["signed_confirmed", "signed_provisional", "already"];
   const checkinTerminalStates = quotaStates.concat(["ineligible", "inactive", "manual_required"]);
   let providersSnapshot = null;
-  const collapsedAccountGroups = new Set();
+  // 默认全部折叠：供应商一多时全部展开会让「签到管理」一进来就是几十屏。
+  // 这里记录的是用户本次会话里主动展开过的供应商，其余一律按折叠渲染。
+  const expandedAccountGroups = new Set();
   let visibleAccountGroupKeys = [];
   let checkinFocusGeneration = 0;
   let accountsRenderGeneration = 0;
@@ -5016,7 +5018,7 @@
     if (!button) return;
     const allCollapsed = visibleAccountGroupKeys.length > 0 &&
       visibleAccountGroupKeys.every(function (key) {
-        return collapsedAccountGroups.has(key);
+        return !expandedAccountGroups.has(key);
       });
     button.textContent = allCollapsed ? "全部展开" : "全部收起";
     button.setAttribute("aria-pressed", allCollapsed ? "true" : "false");
@@ -5024,8 +5026,8 @@
   }
 
   function setAccountGroupCollapsed(groupKey, collapsed) {
-    if (collapsed) collapsedAccountGroups.add(groupKey);
-    else collapsedAccountGroups.delete(groupKey);
+    if (collapsed) expandedAccountGroups.delete(groupKey);
+    else expandedAccountGroups.add(groupKey);
     document.querySelectorAll("#accounts-body .account-group").forEach(function (group) {
       if (group.dataset.provider !== groupKey) return;
       group.classList.toggle("collapsed", collapsed);
@@ -5126,15 +5128,15 @@
       const accounts = provider.accounts || [];
       const groupKey = provider.id;
       const group = document.createElement("div");
-      group.className = "card account-group" +
-        (collapsedAccountGroups.has(groupKey) ? " collapsed" : "");
+      const collapsed = !expandedAccountGroups.has(groupKey);
+      group.className = "card account-group" + (collapsed ? " collapsed" : "");
       group.dataset.provider = groupKey;
       const head = document.createElement("button");
       head.type = "button";
       head.className = "account-group-head";
-      head.setAttribute("aria-expanded", collapsedAccountGroups.has(groupKey) ? "false" : "true");
+      head.setAttribute("aria-expanded", collapsed ? "false" : "true");
       head.setAttribute("aria-label",
-        (collapsedAccountGroups.has(groupKey) ? "展开 " : "收起 ") +
+        (collapsed ? "展开 " : "收起 ") +
         (provider.name || provider.id) + " 账号");
       head.appendChild(providerIconNode(provider));
       const copy = document.createElement("div");
@@ -5156,7 +5158,7 @@
         '<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" ' +
         'stroke-linecap="round" stroke-linejoin="round"/></svg>';
       const toggleGroup = function () {
-        const next = !collapsedAccountGroups.has(groupKey);
+        const next = expandedAccountGroups.has(groupKey);
         setAccountGroupCollapsed(groupKey, next);
         syncAccountCollapseButton();
       };
@@ -6090,7 +6092,7 @@
   document.getElementById("accounts-collapse-all").onclick = function () {
     if (!visibleAccountGroupKeys.length) return;
     const allCollapsed = visibleAccountGroupKeys.every(function (key) {
-      return collapsedAccountGroups.has(key);
+      return !expandedAccountGroups.has(key);
     });
     visibleAccountGroupKeys.forEach(function (key) {
       setAccountGroupCollapsed(key, !allCollapsed);

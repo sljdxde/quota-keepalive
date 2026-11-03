@@ -488,7 +488,12 @@ func TestCheckinPanelNavigationCollapseAndHiddenScrollbars(t *testing.T) {
 		`data-attention="true"`,
 		`data-done="true"`,
 		`card.scrollIntoView(`,
-		`collapsedAccountGroups.clear()`,
+		`expandedAccountGroups.add(target)`,
+		`expandedAccountGroups.clear()`,
+		`const expandedAccountGroups = new Set()`,
+		// 签到管理默认折叠：渲染时按「未主动展开」判定 collapsed。
+		`const collapsed = !expandedAccountGroups.has(groupKey)`,
+		`"card account-group" + (collapsed ? " collapsed" : "")`,
 		`function displayAccountIdentity(`,
 		`scrollbar-width: none`,
 	)
