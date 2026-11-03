@@ -15,11 +15,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sljdxde/quota-keepalive.git"
+    "url": "git+https://github.com/sljdxde/quota-keepalive-magpie-plugin.git"
   },
-  "homepage": "https://github.com/sljdxde/quota-keepalive#readme",
+  "homepage": "https://github.com/sljdxde/quota-keepalive-magpie-plugin#readme",
   "bugs": {
-    "url": "https://github.com/sljdxde/quota-keepalive/issues"
+    "url": "https://github.com/sljdxde/quota-keepalive-magpie-plugin/issues"
   },
   "type": "module",
   "main": "./index.js",

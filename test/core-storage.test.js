@@ -221,7 +221,7 @@ describe("live plugin options", () => {
       `npm:${PLUGIN_NAME}@next`,
       `npm:${PLUGIN_NAME}@^0.1.8`,
       `npm:${PLUGIN_NAME}-other`,
-      "github:sljdxde/quota-keepalive",
+      "github:sljdxde/quota-keepalive-magpie-plugin",
       "https://example.com/quota-keepalive.tgz",
     ]) {
       expect(pluginSpecMatches(spec)).toBe(false)
