@@ -35,10 +35,10 @@ $root = (Resolve-Path -LiteralPath $PackageDir).Path
 
 # ---------------------------------------------------------------- 1. 文件完整性
 Step '1. 包内文件完整性'
+# bun.exe 不属于必需项：CI 冒烟包不组装它，正式发布包才带。
 $required = @(
   'QKA.exe',
   'QKA-cli.exe',
-  'bun.exe',
   'adapters',
   'provider-plugins',
   'README.txt'
@@ -107,10 +107,16 @@ if (-not $SkipTaskRun) {
     $run = & $cli task-run 2>&1 | Out-String
     $code = $LASTEXITCODE
     Remove-Item Env:\QKA_CONFIG_DIR -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath (Join-Path $tmp 'qka.db')) {
-      Pass 'task-run 在临时目录创建了 qka.db'
+    $created = Test-Path -LiteralPath (Join-Path $tmp 'qka.db')
+    if ($code -ne 0) {
+      Fail "task-run 退出码 $code：$($run.Trim())"
+    } elseif ($created) {
+      Pass 'task-run 在临时目录创建了配置库'
+    } elseif ($run -match '未启用') {
+      # 调度未开启时 task-run 直接返回并给出说明，不落库属于预期行为。
+      Pass 'task-run 在未启用调度时正常退出并说明原因'
     } else {
-      Fail "task-run 未创建配置库（退出码 $code）：$($run.Trim())"
+      Fail "task-run 既未建库也未说明原因：$($run.Trim())"
     }
     Info ($run.Trim() -split "`n" | Select-Object -First 5 | Out-String).Trim()
   } finally {
@@ -126,6 +132,9 @@ if (Test-Path -LiteralPath $bun) {
   $version = & $bun --version 2>&1 | Out-String
   if ($LASTEXITCODE -eq 0 -and $version.Trim()) { Pass "bun.exe 可执行：$($version.Trim())" }
   else { Fail "bun.exe 无法执行（退出码 $LASTEXITCODE）" }
+} else {
+  # CI 冒烟包不含 bun，正式发布包由 scripts/package-windows.sh 组装后再校验。
+  Info 'bun.exe 不在包内（CI 包预期如此；正式发布包必须包含）'
 }
 
 # ---------------------------------------------------------------- 汇总
