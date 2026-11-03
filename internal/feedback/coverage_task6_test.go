@@ -67,8 +67,9 @@ func TestEffectiveEndpointFallsBack(t *testing.T) {
 
 // TestDescribeNetworkError 用真实的 net 错误值断言文案，不构造假错误类型。
 func TestDescribeNetworkError(t *testing.T) {
-	dnsErr := &net.DNSError{Err: "no such host", Name: "qka-feedback.invalid", IsNotFound: true}
-	if msg := describeNetworkError(dnsErr); !strings.Contains(msg, "域名解析失败") {
+	// 解析器故障（非 NXDOMAIN）才落到「检查网络」这一类。
+	dnsErr := &net.DNSError{Err: "server misbehaving", Name: "qka-feedback.invalid"}
+	if msg := describeNetworkError(dnsErr); !strings.Contains(msg, "解析失败") {
 		t.Fatalf("DNS 错误文案不对: %q", msg)
 	}
 
@@ -89,3 +90,23 @@ type timeoutErr struct{}
 func (timeoutErr) Error() string   { return "i/o timeout" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return true }
+
+// TestDescribeNetworkErrorNotFound 验证「域名不存在」与「解析失败」被区分开：
+// 前者是服务没部署，让用户换网络永远修不好，文案必须说准。
+func TestDescribeNetworkErrorNotFound(t *testing.T) {
+	notFound := &net.DNSError{
+		Err: "no such host", Name: "qka-feedback.invalid", IsNotFound: true,
+	}
+	msg := describeNetworkError(notFound)
+	if !strings.Contains(msg, "不存在") || !strings.Contains(msg, "尚未部署") {
+		t.Fatalf("NXDOMAIN 文案应说明服务未部署，实际 %q", msg)
+	}
+	if strings.Contains(msg, "检查网络") {
+		t.Fatalf("NXDOMAIN 不应让用户去查网络: %q", msg)
+	}
+
+	lookupFail := &net.DNSError{Err: "server misbehaving", Name: "example.test"}
+	if msg := describeNetworkError(lookupFail); !strings.Contains(msg, "解析失败") {
+		t.Fatalf("普通解析失败文案不对: %q", msg)
+	}
+}

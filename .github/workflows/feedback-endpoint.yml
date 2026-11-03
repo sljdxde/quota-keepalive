@@ -1,0 +1,42 @@
+name: feedback-endpoint
+
+# 反馈端点连通性门禁。
+#
+# 为什么单独一个 workflow：单元测试全部用 httptest 假服务，只能证明客户端逻辑
+# 正确，永远发现不了「内置地址根本没部署」。这个 job 用真实网络跑
+# internal/feedback 的 live 测试，NXDOMAIN / 不可达会直接失败。
+#
+# 运行时机：手动触发、每天一次、以及打 release tag 前手动跑一遍。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Probe the real feedback endpoint
+        env:
+          QKA_FEEDBACK_LIVE: '1'
+        run: go test ./internal/feedback -run TestLiveFeedbackEndpointIsDeployed -v
+
+      # 可选：验证自定义端点（例如把 Worker 绑到自有域名后）
+      - name: Probe a custom endpoint when configured
+        if: vars.QKA_FEEDBACK_URL != ''
+        env:
+          QKA_FEEDBACK_LIVE: '1'
+          QKA_FEEDBACK_URL: ${{ vars.QKA_FEEDBACK_URL }}
+        run: go test ./internal/feedback -run TestLiveFeedbackEndpointIsDeployed -v

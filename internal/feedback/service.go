@@ -306,6 +306,11 @@ func newHTTPClient() *http.Client {
 func describeNetworkError(err error) string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
+		// NXDOMAIN 与「网络不通」是两回事：前者说明服务端根本没部署到这个域名，
+		// 让用户换网络永远修不好，必须把结论说准。
+		if dnsErr.IsNotFound {
+			return "反馈服务地址不存在（该服务可能尚未部署），请联系维护者"
+		}
 		return "反馈服务域名解析失败，请检查网络或稍后重试"
 	}
 	var netErr net.Error
