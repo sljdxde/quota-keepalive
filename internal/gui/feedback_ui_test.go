@@ -8,8 +8,12 @@ import (
 func TestFeedbackDialogSupportsSafeAnonymousIssueReports(t *testing.T) {
 	page := accountPage(t)
 	for _, want := range []string{
-		`id="feedback-shortcut"`,
-		`id="logs-feedback"`,
+		// 入口先隐藏（服务端未部署），但界面与提交能力必须保留，改回一行开关即可恢复。
+		`const FEEDBACK_AVAILABLE = false`,
+		`if (!FEEDBACK_AVAILABLE) return`,
+		`node.hidden = !FEEDBACK_AVAILABLE`,
+		`aria-label="反馈问题" hidden`,
+		`id="logs-feedback" type="button" hidden`,
 		`id="feedback-dialog"`,
 		`id="feedback-description"`,
 		`id="feedback-files"`,

@@ -2404,7 +2404,7 @@
                   stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
           </svg>
         </button>
-        <button class="icon" id="feedback-shortcut" title="反馈问题" aria-label="反馈问题">
+        <button class="icon" id="feedback-shortcut" title="反馈问题" aria-label="反馈问题" hidden>
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3 3.2h10a1.3 1.3 0 0 1 1.3 1.3v5.1a1.3 1.3 0 0 1-1.3 1.3H7.5L4.2 13v-2.1H3A1.3 1.3 0 0 1 1.7 9.6V4.5A1.3 1.3 0 0 1 3 3.2Z"
                   stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
@@ -2476,7 +2476,7 @@
             <p>保存可核查的执行证据；默认滚动保留 48 小时。</p>
           </div>
           <div class="end">
-            <button class="secondary" id="logs-feedback" type="button">反馈异常日志</button>
+            <button class="secondary" id="logs-feedback" type="button" hidden>反馈异常日志</button>
             <span class="pill" id="logs-count">最近 50 条</span>
           </div>
         </div>
@@ -6505,7 +6505,12 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
       context.notice || "请先遮盖图片中的敏感信息。";
   }
 
+  // 反馈通道暂不可用（线上 Worker 尚未部署，提交必然失败），先隐藏入口。
+  // 修好服务端后把这里改成 true、并去掉两个按钮上的 hidden 属性即可恢复。
+  const FEEDBACK_AVAILABLE = false;
+
   async function openFeedback(includeLogs) {
+    if (!FEEDBACK_AVAILABLE) return;
     if (!feedbackDialog.open) {
       feedbackImages = [];
       renderFeedbackImages();
@@ -6530,6 +6535,11 @@ import { populateProviderIcon, providerIconSpec } from "./assets/provider-icons.
     feedbackDialog.close();
   }
 
+  // 入口可见性由 FEEDBACK_AVAILABLE 统一决定，防止只改一处造成半开状态。
+  ["feedback-shortcut", "logs-feedback"].forEach(function (id) {
+    const node = document.getElementById(id);
+    if (node) node.hidden = !FEEDBACK_AVAILABLE;
+  });
   document.getElementById("feedback-shortcut").onclick = function () { openFeedback(false); };
   document.getElementById("logs-feedback").onclick = function () { openFeedback(true); };
   document.getElementById("feedback-close").onclick = closeFeedback;
